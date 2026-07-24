@@ -34,6 +34,38 @@ export default function AdminTools() {
   const [trackImportBusy, setTrackImportBusy] = useState(false);
   const [trackImportMsg, setTrackImportMsg] = useState("");
 
+  const [imgBucket, setImgBucket] = useState<"purchase-images" | "review-images">("purchase-images");
+  const [imgCompany, setImgCompany] = useState("");
+  const [imgDate, setImgDate] = useState("");
+  const [imgFiles, setImgFiles] = useState<{ name: string; url: string }[]>([]);
+  const [imgBusy, setImgBusy] = useState(false);
+  const [imgMsg, setImgMsg] = useState("");
+
+  async function loadImages() {
+    if (!imgCompany.trim()) {
+      setImgMsg("업체코드 또는 업체명을 입력해주세요");
+      return;
+    }
+    setImgBusy(true);
+    setImgMsg("");
+    try {
+      const params = new URLSearchParams({ bucket: imgBucket, company: imgCompany.trim(), date: imgDate.trim() });
+      const res = await fetch(`/api/admin/images?${params.toString()}`);
+      const data = await res.json();
+      if (!data.ok) {
+        setImgMsg(data.message || "조회 실패");
+        setImgFiles([]);
+        return;
+      }
+      setImgFiles(data.files || []);
+      setImgMsg(data.files?.length ? `${data.files.length}개 파일` : "파일이 없습니다");
+    } catch {
+      setImgMsg("조회 중 오류가 발생했습니다");
+    } finally {
+      setImgBusy(false);
+    }
+  }
+
   async function downloadTransfer() {
     setTransferBusy(true);
     setTransferMsg("");
@@ -339,6 +371,61 @@ export default function AdminTools() {
           </div>
           {trackImportMsg && <div className="text-xs text-neutral-600 mt-2 whitespace-pre-line">{trackImportMsg}</div>}
         </div>
+      </div>
+
+      <div className="border border-neutral-300 rounded-xl p-4 bg-white">
+        <div className="font-extrabold text-neutral-700 mb-1">🖼️ 구매/리뷰 이미지 폴더</div>
+        <div className="text-xs text-neutral-500 mb-3">
+          업체별/날짜별로 저장된 이미지를 업체코드(또는 업체명)와 날짜로 찾아볼 수 있어요.
+        </div>
+        <div className="flex gap-2 mb-3 items-center flex-wrap">
+          <select
+            className="border border-neutral-300 rounded-lg px-3 py-2 text-sm bg-white"
+            value={imgBucket}
+            onChange={(e) => setImgBucket(e.target.value as "purchase-images" | "review-images")}
+          >
+            <option value="purchase-images">구매이미지</option>
+            <option value="review-images">리뷰이미지</option>
+          </select>
+          <input
+            className="border border-neutral-300 rounded-lg px-3 py-2 text-sm w-40"
+            placeholder="업체코드 또는 업체명"
+            value={imgCompany}
+            onChange={(e) => setImgCompany(e.target.value)}
+          />
+          <input
+            className="border border-neutral-300 rounded-lg px-3 py-2 text-sm w-28"
+            placeholder="날짜 MMDD (선택)"
+            maxLength={4}
+            value={imgDate}
+            onChange={(e) => setImgDate(e.target.value.replace(/[^0-9]/g, ""))}
+          />
+          <button
+            className="bg-neutral-700 text-white text-sm font-bold rounded-lg px-4 py-2 disabled:opacity-60"
+            onClick={loadImages}
+            disabled={imgBusy}
+          >
+            {imgBusy ? "조회 중..." : "조회"}
+          </button>
+        </div>
+        {imgMsg && <div className="text-xs text-neutral-600 mb-3">{imgMsg}</div>}
+        {imgFiles.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            {imgFiles.map((f) => (
+              <a
+                key={f.name}
+                href={f.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-20 h-20 rounded-lg overflow-hidden border border-neutral-200"
+                title={f.name}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={f.url} alt={f.name} className="w-full h-full object-cover" />
+              </a>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

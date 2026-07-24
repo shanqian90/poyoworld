@@ -83,6 +83,12 @@ export async function POST(req: NextRequest) {
     const claimedRows = (claimed || []) as { id: number; order_no: string }[];
     const rowByOrderNo = new Map(claimedRows.map((r) => [r.order_no, r.id]));
 
+    const { data: companyRows } = await supabase
+      .from("orders")
+      .select("id, company_code, company_name")
+      .in("id", claimedRows.map((r) => r.id));
+    const companyById = new Map((companyRows || []).map((r) => [r.id, r]));
+
     let noImageCount = 0;
     const results: { orderNo: string; ok: boolean; message?: string; images?: string[] }[] = [];
 
@@ -98,11 +104,13 @@ export async function POST(req: NextRequest) {
         if (s.noImage) {
           noImageCount++;
         } else {
+          const company = companyById.get(rowId);
+          const companyFolder = safeFolderName(company?.company_code || company?.company_name || "미지정업체");
           for (let i = 0; i < s.images.length; i++) {
             const { mime } = parseDataUrl(s.images[i]);
             const ext = extFromMime(mime);
             const safeOrderNo = String(s.orderNo).replace(/[^a-zA-Z0-9_-]/g, "_");
-            const path = `${dateMmdd}/${rowId}/${safeOrderNo}_${i + 1}.${ext}`;
+            const path = `${companyFolder}/${dateMmdd}/${safeOrderNo}_${i + 1}.${ext}`;
             const url = await uploadImage(supabase, "purchase-images", path, s.images[i]);
             uploaded.push(url);
           }
@@ -143,4 +151,8 @@ export async function POST(req: NextRequest) {
 
 function fail(message: string, status = 400) {
   return NextResponse.json({ ok: false, message }, { status });
+}
+
+function safeFolderName(name: string): string {
+  return name.replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "") || "미지정업체";
 }

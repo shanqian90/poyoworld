@@ -397,6 +397,9 @@ export default function AdminOrdersTable({
         <Link href="/admin/guides" className="text-xs font-bold text-emerald-700 underline">
           🌷 구매가이드 →
         </Link>
+        <Link href="/admin/accounts" className="text-xs font-bold text-emerald-700 underline">
+          👤 계정관리 →
+        </Link>
         <Link href="/admin/tools" className="text-xs font-bold text-emerald-700 underline">
           🧰 관리도구 →
         </Link>

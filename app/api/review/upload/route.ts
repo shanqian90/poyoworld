@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
 
     const { data: row, error: rowErr } = await supabase
       .from("orders")
-      .select("id, phone, receiver, order_no, paid")
+      .select("id, phone, receiver, order_no, paid, company_code, company_name, date_mmdd")
       .eq("id", rowId)
       .single();
     if (rowErr || !row) return fail("주문 정보를 찾을 수 없습니다");
@@ -22,11 +22,13 @@ export async function POST(req: NextRequest) {
     const block = await checkBlocked(supabase, { phones: [row.phone] });
     if (block.blocked) return fail(block.reason || "차단되었습니다", 403);
 
+    const companyFolder = safeFolderName(row.company_code || row.company_name || "미지정업체");
+    const safeOrderNo = String(row.order_no).replace(/[^a-zA-Z0-9_-]/g, "_");
     const uploaded: string[] = [];
     for (let i = 0; i < images.length; i++) {
       const { mime } = parseDataUrl(images[i]);
       const ext = extFromMime(mime);
-      const path = `${rowId}/${Date.now()}_${i + 1}.${ext}`;
+      const path = `${companyFolder}/${row.date_mmdd}/${safeOrderNo}_${i + 1}.${ext}`;
       uploaded.push(await uploadImage(supabase, "review-images", path, images[i]));
     }
 
@@ -45,4 +47,8 @@ export async function POST(req: NextRequest) {
 
 function fail(message: string, status = 400) {
   return NextResponse.json({ ok: false, message }, { status });
+}
+
+function safeFolderName(name: string): string {
+  return name.replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "") || "미지정업체";
 }
