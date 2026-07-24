@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   // 택배대행(Y)인 것만 = delivery 값이 채워진 것만, 실제 주문건만
   const { data, error } = await supabase
     .from("orders")
-    .select("id, order_no, receiver, address, phone, product_name, tracking, date_mmdd")
+    .select("id, order_no, receiver, address, phone, product_name, tracking, date_mmdd, delivery")
     .not("delivery", "is", null)
     .neq("delivery", "")
     .not("order_no", "is", null)

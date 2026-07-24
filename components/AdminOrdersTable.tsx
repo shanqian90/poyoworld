@@ -109,19 +109,79 @@ export default function AdminOrdersTable({
 
   const [hoverCell, setHoverCell] = useState<{ id: number; field: Field } | null>(null);
 
+  const [dragAnchor, setDragAnchor] = useState<{ id: number; field: Field } | null>(null);
+  const [dragAxis, setDragAxis] = useState<"row" | "col" | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const cellKey = (id: number, field: Field) => `${id}:${field}`;
+  const clearableField = (f: Field) => !TOGGLE_KEYS.has(f) && !LINK_FIELDS.has(f) && f !== "seq";
+
+  function startDrag(row: AdminOrderRow, field: Field) {
+    setDragAnchor({ id: row.id, field });
+    setDragAxis(null);
+    setIsDragging(true);
+    setSelectedCells(new Set([cellKey(row.id, field)]));
+  }
+
+  function dragOver(row: AdminOrderRow, field: Field) {
+    if (!isDragging || !dragAnchor) return;
+    let axis = dragAxis;
+    if (!axis) {
+      if (row.id === dragAnchor.id && field !== dragAnchor.field) axis = "row";
+      else if (field === dragAnchor.field && row.id !== dragAnchor.id) axis = "col";
+      else return;
+      setDragAxis(axis);
+    }
+    if (axis === "row" && row.id !== dragAnchor.id) return;
+    if (axis === "col" && field !== dragAnchor.field) return;
+
+    const next = new Set<string>();
+    if (axis === "row") {
+      const colKeys = COLUMNS.map((c) => c.key);
+      const a = colKeys.indexOf(dragAnchor.field);
+      const b = colKeys.indexOf(field);
+      const [lo, hi] = a <= b ? [a, b] : [b, a];
+      for (let i = lo; i <= hi; i++) next.add(cellKey(row.id, colKeys[i]));
+    } else {
+      const a = filtered.findIndex((r) => r.id === dragAnchor.id);
+      const b = filtered.findIndex((r) => r.id === row.id);
+      const [lo, hi] = a <= b ? [a, b] : [b, a];
+      for (let i = lo; i <= hi; i++) next.add(cellKey(filtered[i].id, field));
+    }
+    setSelectedCells(next);
+  }
+
+  useEffect(() => {
+    function onUp() {
+      setIsDragging(false);
+    }
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, []);
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (editing) return;
-      if ((e.key !== "Delete" && e.key !== "Backspace") || !hoverCell) return;
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
       const target = e.target as HTMLElement;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
-      if (TOGGLE_KEYS.has(hoverCell.field) || LINK_FIELDS.has(hoverCell.field) || hoverCell.field === "seq") return;
+      if (selectedCells.size > 1) {
+        selectedCells.forEach((key) => {
+          const idx = key.lastIndexOf(":");
+          const id = Number(key.slice(0, idx));
+          const field = key.slice(idx + 1) as Field;
+          if (clearableField(field)) saveField(id, field, null);
+        });
+        return;
+      }
+      if (!hoverCell) return;
+      if (!clearableField(hoverCell.field)) return;
       saveField(hoverCell.id, hoverCell.field, null);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hoverCell, editing]);
+  }, [hoverCell, editing, selectedCells]);
 
   type NameEntry = { id: string; value: string };
   const [blacklistNames, setBlacklistNames] = useState<NameEntry[]>([]);
@@ -544,13 +604,18 @@ export default function AdminOrdersTable({
                         .map((s) => s.trim())
                         .filter(Boolean)
                     : [];
+                  const isSelected = selectedCells.has(cellKey(r.id, c.key));
                   return (
                     <td
                       key={c.key}
                       className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis select-none"
-                      style={{ backgroundColor: flagBg }}
+                      style={{ backgroundColor: flagBg, boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined }}
                       onClick={() => !isEditing && startEdit(r, c.key)}
-                      onMouseEnter={() => setHoverCell({ id: r.id, field: c.key })}
+                      onMouseDown={() => startDrag(r, c.key)}
+                      onMouseEnter={() => {
+                        setHoverCell({ id: r.id, field: c.key });
+                        dragOver(r, c.key);
+                      }}
                       onMouseLeave={() => setHoverCell((h) => (h && h.id === r.id && h.field === c.key ? null : h))}
                       title={flagTitle || (typeof val === "string" ? val : undefined)}
                     >

@@ -16,10 +16,10 @@ export const K_FLAG_INFO: Record<KFlag, { label: string; color: string }> = {
   blank: { label: "예정 미배정", color: "#FFB74D" },
   blacklist: { label: "블랙리스트", color: "#E53935" },
   already_done: { label: "이미 실진행됨", color: "#FFFFFF" },
-  safe: { label: "안전(최초 배정)", color: "#C5CAE9" },
+  safe: { label: "안전(최초 배정)", color: "#B3E5FC" },
   whitelist: { label: "화이트리스트", color: "#CE93D8" },
   company_dup: { label: "업체 중복(21일내)", color: "#F48FB1" },
-  product_dup: { label: "상품 중복(21일내)", color: "#4DD0E1" },
+  product_dup: { label: "상품 중복", color: "#4DD0E1" },
 };
 
 export const ADDRESS_DUP_COLOR = "#F48FB1";
@@ -100,8 +100,9 @@ export function computeKFlags(
       continue;
     }
 
+    // 상품 중복: 날짜 제한 없이 업체코드+업체명+제품명+예정(K) 기준
     const productDupCount = rows.filter(
-      (o) => o.company_name === r.company_name && o.product_name === r.product_name && (o.manager || "").trim() === k && within21(o)
+      (o) => o.company_code === r.company_code && o.company_name === r.company_name && o.product_name === r.product_name && (o.manager || "").trim() === k
     ).length;
     if (productDupCount > 1) {
       result.set(r.id, "product_dup");

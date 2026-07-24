@@ -13,6 +13,7 @@ type TrackRow = {
   product_name: string | null;
   tracking: string | null;
   date_mmdd: string;
+  delivery: string | null;
 };
 
 export default function AdminTools() {
@@ -284,6 +285,7 @@ export default function AdminTools() {
                   <th className="px-2 py-1.5 text-left">주문번호</th>
                   <th className="px-2 py-1.5 text-left">수취인</th>
                   <th className="px-2 py-1.5 text-left">전화번호</th>
+                  <th className="px-2 py-1.5 text-left">택배대행</th>
                   <th className="px-2 py-1.5 text-left">운송장번호</th>
                 </tr>
               </thead>
@@ -304,6 +306,9 @@ export default function AdminTools() {
                       <td className="px-2 py-1">{r.order_no}</td>
                       <td className="px-2 py-1">{r.receiver}</td>
                       <td className="px-2 py-1">{r.phone}</td>
+                      <td className="px-2 py-1" style={{ backgroundColor: r.delivery ? "#F5E6C8" : undefined }}>
+                        {r.delivery || "-"}
+                      </td>
                       <td className="px-2 py-1">{r.tracking || "-"}</td>
                     </tr>
                   );
