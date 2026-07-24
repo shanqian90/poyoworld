@@ -109,10 +109,32 @@ export default function PurchaseTab({
     });
   }
 
-  function onFileInput(id: string, fileList: FileList | null) {
+  const [extracting, setExtracting] = useState<Record<string, boolean>>({});
+
+  async function onFileInput(id: string, fileList: FileList | null) {
     const existing = accState[id]?.files || [];
-    const next = existing.concat(Array.from(fileList || []));
+    const added = Array.from(fileList || []);
+    const next = existing.concat(added);
     setFiles(id, next);
+
+    const currentOrderNo = (accState[id]?.orderNo || "").trim();
+    if (!currentOrderNo && added.length) {
+      setExtracting((prev) => ({ ...prev, [id]: true }));
+      try {
+        const dataUrl = await compressImage(added[0], 1000, 0.85);
+        const res = await fetch("/api/purchase/extract-order-no", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: dataUrl }),
+        });
+        const data = await res.json();
+        if (data.ok && data.orderNo) setOrderNo(id, data.orderNo);
+      } catch {
+        /* 자동추출 실패는 조용히 무시 — 직접 입력하면 됨 */
+      } finally {
+        setExtracting((prev) => ({ ...prev, [id]: false }));
+      }
+    }
   }
 
   function removeFile(id: string, idx: number) {
@@ -310,12 +332,20 @@ export default function PurchaseTab({
                   </div>
                   {st.checked && (
                     <div className="px-3 pb-3 pt-1 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        className="border border-rose-200 rounded-lg px-3 py-2 text-sm"
-                        placeholder="주문번호"
-                        value={st.orderNo}
-                        onChange={(e) => setOrderNo(acc.id, e.target.value)}
-                      />
+                      <div className="relative">
+                        <input
+                          className="w-full border border-rose-200 rounded-lg px-3 py-2 text-sm disabled:bg-neutral-50 disabled:text-neutral-400"
+                          placeholder="주문번호"
+                          value={st.orderNo}
+                          disabled={!!extracting[acc.id]}
+                          onChange={(e) => setOrderNo(acc.id, e.target.value)}
+                        />
+                        {extracting[acc.id] && (
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] font-bold text-rose-400">
+                            🔎 주문번호 추출 중...
+                          </div>
+                        )}
+                      </div>
                       <label className="border-2 border-dashed border-rose-300 rounded-lg px-3 py-3 text-center text-xs font-bold text-rose-500 cursor-pointer bg-rose-50">
                         📎 주문상세 이미지 첨부 (최대 2장)
                         <input

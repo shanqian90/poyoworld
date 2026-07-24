@@ -118,6 +118,20 @@ export default function AdminTools() {
     setTrackChecked((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
+  const selectableRows = trackRows.filter((r) => !r.tracking);
+  const allSelected = selectableRows.length > 0 && selectableRows.every((r) => trackChecked[r.id]);
+
+  function toggleSelectAll() {
+    const next = !allSelected;
+    setTrackChecked((prev) => {
+      const updated = { ...prev };
+      selectableRows.forEach((r) => {
+        updated[r.id] = next;
+      });
+      return updated;
+    });
+  }
+
   const checkedIds = Object.entries(trackChecked)
     .filter(([, v]) => v)
     .map(([k]) => Number(k));
@@ -258,7 +272,14 @@ export default function AdminTools() {
             <table className="w-full text-xs border-collapse">
               <thead className="bg-neutral-100 sticky top-0">
                 <tr>
-                  <th className="px-2 py-1.5"></th>
+                  <th className="px-2 py-1.5 text-center">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      disabled={!selectableRows.length}
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
                   <th className="px-2 py-1.5 text-left">날짜</th>
                   <th className="px-2 py-1.5 text-left">주문번호</th>
                   <th className="px-2 py-1.5 text-left">수취인</th>

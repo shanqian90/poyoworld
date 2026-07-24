@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -11,9 +11,14 @@ export type AdminOrderRow = {
   company_code: string | null;
   company_name: string | null;
   platform: string | null;
+  product_url: string | null;
   product_name: string;
   option_text: string;
   review_type: string | null;
+  review_url: string | null;
+  manager: string | null;
+  real_manager: string | null;
+  order_image: string | null;
   order_no: string | null;
   buyer: string | null;
   receiver: string | null;
@@ -26,46 +31,57 @@ export type AdminOrderRow = {
   review_done: boolean;
   paid: boolean;
   paid_date: string | null;
+  company_paid: boolean;
   delivery: string | null;
   tracking: string | null;
   remark: string | null;
-  order_image: string | null;
-  review_url: string | null;
   _group: "a" | "b" | null;
 };
 
 type Field = keyof AdminOrderRow;
+type Kind = "text" | "toggle";
 
 function fmt(n: number | null) {
   return (n || 0).toLocaleString("ko-KR");
 }
 
-const LINK_FIELDS = new Set<Field>(["order_image", "review_url"]);
+const LINK_FIELDS = new Set<Field>(["product_url", "review_url", "order_image"]);
+const TOGGLE_LABELS: Partial<Record<Field, [string, string]>> = {
+  review_done: ["완료", "미완료"],
+  paid: ["완료", "대기"],
+  company_paid: ["완료", "대기"],
+};
 
-const COLUMNS: { key: Field; label: string; align?: "right"; width?: string }[] = [
-  { key: "seq", label: "순번" },
-  { key: "date_mmdd", label: "날짜" },
-  { key: "company_code", label: "업체코드" },
-  { key: "company_name", label: "업체명" },
-  { key: "platform", label: "플랫폼" },
-  { key: "product_name", label: "제품명" },
-  { key: "option_text", label: "옵션" },
-  { key: "review_type", label: "리뷰종류" },
-  { key: "order_no", label: "주문번호" },
-  { key: "buyer", label: "구매자" },
-  { key: "receiver", label: "수취인" },
-  { key: "user_id", label: "아이디" },
-  { key: "phone", label: "전화번호" },
-  { key: "address", label: "주소", width: "max-w-[220px]" },
-  { key: "account_text", label: "계좌", width: "max-w-[200px]" },
-  { key: "amount", label: "금액", align: "right" },
-  { key: "review_fee", label: "리뷰금액", align: "right" },
-  { key: "order_image", label: "구매이미지" },
-  { key: "paid_date", label: "입금일" },
-  { key: "delivery", label: "택배대행" },
-  { key: "tracking", label: "운송장번호" },
-  { key: "review_url", label: "리뷰URL" },
-  { key: "remark", label: "비고", width: "max-w-[160px]" },
+const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaultWidth: number }[] = [
+  { key: "seq", label: "순번", defaultWidth: 60 },
+  { key: "date_mmdd", label: "날짜", defaultWidth: 60 },
+  { key: "company_code", label: "업체코드", defaultWidth: 80 },
+  { key: "company_name", label: "업체명", defaultWidth: 110 },
+  { key: "platform", label: "플랫폼명", defaultWidth: 80 },
+  { key: "product_url", label: "제품URL", defaultWidth: 90 },
+  { key: "product_name", label: "제품명", defaultWidth: 140 },
+  { key: "option_text", label: "구매옵션", defaultWidth: 110 },
+  { key: "review_type", label: "리뷰종류", defaultWidth: 90 },
+  { key: "review_url", label: "리뷰URL", defaultWidth: 90 },
+  { key: "manager", label: "예정", defaultWidth: 70 },
+  { key: "real_manager", label: "실진행", defaultWidth: 70 },
+  { key: "order_image", label: "구매URL", defaultWidth: 90 },
+  { key: "order_no", label: "주문번호", defaultWidth: 130 },
+  { key: "buyer", label: "구매자", defaultWidth: 80 },
+  { key: "receiver", label: "수취인", defaultWidth: 80 },
+  { key: "user_id", label: "아이디", defaultWidth: 90 },
+  { key: "phone", label: "전화번호", defaultWidth: 110 },
+  { key: "address", label: "주소", defaultWidth: 160 },
+  { key: "account_text", label: "계좌", defaultWidth: 150 },
+  { key: "amount", label: "금액", align: "right", defaultWidth: 80 },
+  { key: "review_fee", label: "리뷰금액", align: "right", defaultWidth: 80 },
+  { key: "review_done", label: "리뷰작성", kind: "toggle", defaultWidth: 70 },
+  { key: "paid", label: "입금", kind: "toggle", defaultWidth: 70 },
+  { key: "paid_date", label: "입금일", defaultWidth: 90 },
+  { key: "company_paid", label: "업체입금", kind: "toggle", defaultWidth: 70 },
+  { key: "delivery", label: "택배대행", defaultWidth: 90 },
+  { key: "tracking", label: "운송장번호", defaultWidth: 110 },
+  { key: "remark", label: "비고", defaultWidth: 130 },
 ];
 
 export default function AdminOrdersTable({
@@ -81,6 +97,26 @@ export default function AdminOrdersTable({
   const [editing, setEditing] = useState<{ id: number; field: Field } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [widths, setWidths] = useState<Record<string, number>>(() =>
+    Object.fromEntries(COLUMNS.map((c) => [c.key, c.defaultWidth]))
+  );
+
+  function startResize(e: ReactMouseEvent, key: Field) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = widths[key] ?? 100;
+    function onMove(ev: MouseEvent) {
+      const next = Math.max(36, startWidth + (ev.clientX - startX));
+      setWidths((prev) => ({ ...prev, [key]: next }));
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -133,7 +169,7 @@ export default function AdminOrdersTable({
     setEditing(null);
   }
 
-  async function toggleBool(row: AdminOrderRow, field: "paid" | "review_done") {
+  async function toggleBool(row: AdminOrderRow, field: "paid" | "review_done" | "company_paid") {
     await saveField(row.id, field, !row[field]);
   }
 
@@ -211,16 +247,27 @@ export default function AdminOrdersTable({
       )}
 
       <div className="border border-neutral-300 rounded-xl overflow-auto flex-1">
-        <table className="w-full text-xs border-collapse min-w-[1700px]">
+        <table className="text-xs border-collapse" style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            {COLUMNS.map((c) => (
+              <col key={c.key} style={{ width: widths[c.key] }} />
+            ))}
+            <col style={{ width: 36 }} />
+          </colgroup>
           <thead className="sticky top-0 bg-neutral-800 text-white z-10">
             <tr>
               {COLUMNS.map((c) => (
-                <th key={c.key} className="px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700">
+                <th
+                  key={c.key}
+                  className="relative px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700 overflow-hidden"
+                >
                   {c.label}
+                  <div
+                    className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-rose-400/70"
+                    onMouseDown={(e) => startResize(e, c.key)}
+                  />
                 </th>
               ))}
-              <th className="px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700">리뷰작성</th>
-              <th className="px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700">입금</th>
               <th className="px-2 py-2 text-center whitespace-nowrap"></th>
             </tr>
           </thead>
@@ -228,6 +275,23 @@ export default function AdminOrdersTable({
             {filtered.map((r) => (
               <tr key={r.id} className="border-b border-neutral-200">
                 {COLUMNS.map((c) => {
+                  if (c.kind === "toggle") {
+                    const on = !!r[c.key];
+                    const [onLabel, offLabel] = TOGGLE_LABELS[c.key] || ["완료", "대기"];
+                    return (
+                      <td key={c.key} className="px-2 py-1.5 border-r border-neutral-200 text-center overflow-hidden">
+                        <button
+                          className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                            on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
+                          }`}
+                          onClick={() => toggleBool(r, c.key as "review_done" | "paid" | "company_paid")}
+                          disabled={savingId === r.id}
+                        >
+                          {on ? onLabel : offLabel}
+                        </button>
+                      </td>
+                    );
+                  }
                   const isEditing = editing?.id === r.id && editing.field === c.key;
                   const val = r[c.key];
                   const groupBg = c.key === "seq" ? (r._group === "a" ? "#FFF1A6" : r._group === "b" ? "#FAD2E1" : undefined) : undefined;
@@ -241,7 +305,7 @@ export default function AdminOrdersTable({
                   return (
                     <td
                       key={c.key}
-                      className={`px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 ${c.width || ""}`}
+                      className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis"
                       style={{ backgroundColor: groupBg }}
                       onClick={() => !isEditing && startEdit(r, c.key)}
                       title={typeof val === "string" ? val : undefined}
@@ -249,7 +313,7 @@ export default function AdminOrdersTable({
                       {isEditing ? (
                         <input
                           autoFocus
-                          className="w-full min-w-[80px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
+                          className="w-full min-w-[36px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={commitEdit}
@@ -285,24 +349,6 @@ export default function AdminOrdersTable({
                     </td>
                   );
                 })}
-                <td className="px-2 py-1.5 border-r border-neutral-200">
-                  <button
-                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${r.review_done ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"}`}
-                    onClick={() => toggleBool(r, "review_done")}
-                    disabled={savingId === r.id}
-                  >
-                    {r.review_done ? "완료" : "미완료"}
-                  </button>
-                </td>
-                <td className="px-2 py-1.5 border-r border-neutral-200">
-                  <button
-                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${r.paid ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}
-                    onClick={() => toggleBool(r, "paid")}
-                    disabled={savingId === r.id}
-                  >
-                    {r.paid ? "완료" : "대기"}
-                  </button>
-                </td>
                 <td className="px-2 py-1.5">
                   <button
                     className="text-neutral-400 hover:text-rose-600 font-bold px-1"

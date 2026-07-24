@@ -14,6 +14,8 @@ const EDITABLE_FIELDS = new Set([
   "option_text",
   "review_type",
   "review_url",
+  "manager",
+  "real_manager",
   "order_no",
   "buyer",
   "receiver",
