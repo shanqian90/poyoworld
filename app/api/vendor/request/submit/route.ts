@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { checkBlocked } from "@/lib/blacklist";
 import { discountUnit } from "@/lib/workRequestExpand";
+import { notifyNewWorkRequest } from "@/lib/mail";
 
 type ProductInput = {
   productUrl: string;
@@ -78,6 +79,15 @@ export async function POST(req: NextRequest) {
 
     const { error: insErr } = await supabase.from("work_requests").insert(rows);
     if (insErr) throw new Error(insErr.message);
+
+    await notifyNewWorkRequest({
+      companyName: vendor.company_name,
+      companyCode: vendor.company_code,
+      receiptNo: rNo,
+      productCount: rows.length,
+      loginId,
+      adminUrl: `${new URL(req.url).origin}/admin/requests`,
+    });
 
     return NextResponse.json({ ok: true, receiptNo: rNo, count: rows.length });
   } catch (err) {
