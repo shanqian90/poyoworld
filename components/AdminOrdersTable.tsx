@@ -217,6 +217,9 @@ export default function AdminOrdersTable({
         <Link href="/admin/requests" className="text-xs font-bold text-emerald-700 underline">
           📝 작업요청서 →
         </Link>
+        <Link href="/admin/estimate" className="text-xs font-bold text-emerald-700 underline">
+          🧾 견적서 발행 →
+        </Link>
         <Link href="/admin/guides" className="text-xs font-bold text-emerald-700 underline">
           🌷 구매가이드 →
         </Link>

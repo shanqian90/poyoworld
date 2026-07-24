@@ -192,6 +192,22 @@ export default function RequestsPanel({
       </div>
 
       <div className="border border-neutral-300 rounded-xl px-3 py-2 flex items-center gap-2 bg-neutral-50">
+        <span className="text-xs font-bold text-neutral-500 shrink-0">🔗 업체 웹앱 링크</span>
+        <span className="text-xs text-neutral-400 flex-1 truncate">
+          {typeof window !== "undefined" ? `${window.location.origin}/vendor/login` : "/vendor/login"}
+        </span>
+        <button
+          className="text-xs bg-neutral-700 text-white font-bold rounded-lg px-3 py-1.5 shrink-0"
+          onClick={() => {
+            navigator.clipboard.writeText(`${window.location.origin}/vendor/login`);
+            setResetMsg("✅ 링크가 복사되었습니다");
+          }}
+        >
+          복사
+        </button>
+      </div>
+
+      <div className="border border-neutral-300 rounded-xl px-3 py-2 flex items-center gap-2 bg-neutral-50">
         <span className="text-xs font-bold text-neutral-500 shrink-0">🔑 비밀번호 초기화</span>
         <input
           className="border border-neutral-300 rounded-lg px-2 py-1 text-sm flex-1"

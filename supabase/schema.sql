@@ -215,6 +215,10 @@ insert into storage.buckets (id, name, public)
 values ('review-images', 'review-images', true)
 on conflict (id) do nothing;
 
+insert into storage.buckets (id, name, public)
+values ('estimate-images', 'estimate-images', true)
+on conflict (id) do nothing;
+
 drop policy if exists "purchase images public read" on storage.objects;
 create policy "purchase images public read" on storage.objects
   for select using (bucket_id = 'purchase-images');
@@ -230,6 +234,14 @@ create policy "review images public read" on storage.objects
 drop policy if exists "review images anon upload" on storage.objects;
 create policy "review images anon upload" on storage.objects
   for insert with check (bucket_id = 'review-images');
+
+drop policy if exists "estimate images public read" on storage.objects;
+create policy "estimate images public read" on storage.objects
+  for select using (bucket_id = 'estimate-images');
+
+drop policy if exists "estimate images anon upload" on storage.objects;
+create policy "estimate images anon upload" on storage.objects
+  for insert with check (bucket_id = 'estimate-images');
 
 -- ============================================================
 -- 샘플 데이터 (테스트용 - 필요 없으면 지워도 됨)

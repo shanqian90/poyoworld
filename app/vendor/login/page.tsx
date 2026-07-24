@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { setVendorLoginId } from "@/lib/vendorSession";
+import { getVendorLoginId, setVendorLoginId } from "@/lib/vendorSession";
 import { formatPhoneLive } from "@/lib/phone";
+import TrustCounters from "@/components/TrustCounters";
 
 export default function VendorLoginPage() {
   const router = useRouter();
@@ -12,6 +13,11 @@ export default function VendorLoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+
+  useEffect(() => {
+    if (getVendorLoginId()) router.replace("/vendor");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function doLogin() {
     const id = loginId.trim();
@@ -69,6 +75,7 @@ export default function VendorLoginPage() {
             💬 1:1 문의
           </a>
         </div>
+        <TrustCounters />
       <div className="w-full bg-white border-2 border-emerald-200 rounded-3xl p-6 shadow-lg shadow-emerald-100">
         <div className="text-center text-2xl font-extrabold text-emerald-700 mb-1">🏢 업체 로그인</div>
         <div className="text-center text-sm text-neutral-500 mb-4">작업요청서 제출</div>

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { setKakaoId } from "@/lib/session";
+import { getKakaoId, setKakaoId } from "@/lib/session";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,6 +11,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+
+  useEffect(() => {
+    if (getKakaoId()) router.replace("/home");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function doLogin() {
     const id = kakaoId.trim();
