@@ -40,7 +40,7 @@ export type GuideProduct = {
   price: number | null;
   review_fee: string | null;
   payback_name: string | null;
-  has_receipt: boolean;
+  status: string | null;
   buy_type: string | null;
   review_type: string | null;
   delivery: string | null;

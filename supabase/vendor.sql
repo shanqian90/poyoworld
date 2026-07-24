@@ -59,3 +59,9 @@ create policy vendors_all on vendors for all using (true) with check (true);
 
 drop policy if exists work_requests_all on work_requests;
 create policy work_requests_all on work_requests for all using (true) with check (true);
+
+alter table work_requests add column if not exists phone text;
+alter table work_requests add column if not exists issue_date date;
+alter table work_requests add column if not exists deposit_amount numeric;
+alter table work_requests add column if not exists deposit_date date;
+alter table work_requests add column if not exists image_url text;

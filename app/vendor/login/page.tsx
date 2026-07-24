@@ -50,7 +50,26 @@ export default function VendorLoginPage() {
 
   return (
     <div className="flex-1 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-white border-2 border-emerald-200 rounded-3xl p-6 shadow-lg shadow-emerald-100">
+      <div className="w-full max-w-sm">
+        <div className="flex gap-2 mb-3">
+          <a
+            href="https://docs.google.com/document/d/1WwjhBng7zMI1GCiR0dTb2JUbqVlnCqAAkvgFXC0tZkA/edit?tab=t.0"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 text-center bg-white border border-emerald-200 rounded-xl py-2.5 text-sm font-bold text-emerald-700"
+          >
+            📋 진행안내
+          </a>
+          <a
+            href="https://open.kakao.com/o/sCwvgAji"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 text-center bg-white border border-emerald-200 rounded-xl py-2.5 text-sm font-bold text-emerald-700"
+          >
+            💬 1:1 문의
+          </a>
+        </div>
+      <div className="w-full bg-white border-2 border-emerald-200 rounded-3xl p-6 shadow-lg shadow-emerald-100">
         <div className="text-center text-2xl font-extrabold text-emerald-700 mb-1">🏢 업체 로그인</div>
         <div className="text-center text-sm text-neutral-500 mb-4">작업요청서 제출</div>
         <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-neutral-500 leading-relaxed text-center mb-4">
@@ -92,6 +111,7 @@ export default function VendorLoginPage() {
             {error}
           </div>
         )}
+      </div>
       </div>
     </div>
   );

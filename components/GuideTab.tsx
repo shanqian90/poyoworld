@@ -69,7 +69,6 @@ export default function GuideTab({
                     {p.buy_type}
                   </Badge>
                 )}
-                {p.has_receipt && <Badge color="bg-cyan-50 text-cyan-700">🧾 현금영수증</Badge>}
               </div>
 
               {isOpen && (

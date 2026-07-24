@@ -17,7 +17,7 @@ const EDITABLE_FIELDS = new Set([
   "price",
   "review_fee",
   "payback_name",
-  "has_receipt",
+  "status",
   "buy_type",
   "review_type",
   "delivery",
@@ -27,7 +27,7 @@ const EDITABLE_FIELDS = new Set([
 ]);
 
 const NUMBER_FIELDS = new Set(["price"]);
-const BOOL_FIELDS = new Set(["active", "has_receipt"]);
+const BOOL_FIELDS = new Set(["active"]);
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const cookieStore = await cookies();

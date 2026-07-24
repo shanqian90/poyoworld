@@ -192,6 +192,9 @@ create policy guide_products_update on guide_products for update using (true) wi
 drop policy if exists guide_products_delete on guide_products;
 create policy guide_products_delete on guide_products for delete using (true);
 
+alter table guide_products drop column if exists has_receipt;
+alter table guide_products add column if not exists status text;
+
 drop policy if exists orders_all on orders;
 create policy orders_all on orders for all using (true) with check (true);
 

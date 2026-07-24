@@ -24,7 +24,7 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
   { key: "price", label: "가격", align: "right", defaultWidth: 80 },
   { key: "review_fee", label: "리뷰비", defaultWidth: 80 },
   { key: "payback_name", label: "페이백명", defaultWidth: 100 },
-  { key: "has_receipt", label: "영수증", kind: "toggle", defaultWidth: 70 },
+  { key: "status", label: "상태", defaultWidth: 90 },
   { key: "buy_type", label: "구매유형", defaultWidth: 100 },
   { key: "review_type", label: "리뷰가이드", defaultWidth: 140 },
   { key: "delivery", label: "배송형태", defaultWidth: 90 },
@@ -74,13 +74,16 @@ export default function AdminGuideTable({
     window.addEventListener("mouseup", onUp);
   }
 
+  const [activeOnly, setActiveOnly] = useState(false);
+
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
-    if (!query) return rows;
-    return rows.filter((r) =>
-      [r.company, r.short_name, r.full_name, r.code, r.platform].join(" ").toLowerCase().includes(query)
-    );
-  }, [rows, q]);
+    return rows.filter((r) => {
+      if (activeOnly && !r.active) return false;
+      if (!query) return true;
+      return [r.company, r.short_name, r.full_name, r.code, r.platform].join(" ").toLowerCase().includes(query);
+    });
+  }, [rows, q, activeOnly]);
 
   async function saveField(id: string, field: Field, value: string | number | boolean | null) {
     setSavingId(id);
@@ -122,7 +125,7 @@ export default function AdminGuideTable({
     setEditing(null);
   }
 
-  async function toggleBool(row: GuideProduct, field: "active" | "has_receipt") {
+  async function toggleBool(row: GuideProduct, field: "active") {
     await saveField(row.id, field, !row[field]);
   }
 
@@ -168,6 +171,14 @@ export default function AdminGuideTable({
           ← 메인 전체보기
         </Link>
         <div className="flex-1" />
+        <button
+          className={`text-xs rounded-lg px-3 py-1.5 font-bold border ${
+            activeOnly ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-neutral-600 border-neutral-300"
+          }`}
+          onClick={() => setActiveOnly((v) => !v)}
+        >
+          {activeOnly ? "✓ 진행여부 예만" : "진행여부 예만 보기"}
+        </button>
         <input
           className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm w-56"
           placeholder="업체명·제품명·업체코드 검색"
@@ -228,7 +239,7 @@ export default function AdminGuideTable({
                           className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
                             on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
                           }`}
-                          onClick={() => toggleBool(r, c.key as "active" | "has_receipt")}
+                          onClick={() => toggleBool(r, c.key as "active")}
                           disabled={savingId === r.id}
                         >
                           {on ? "예" : "아니오"}
