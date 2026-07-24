@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Vendor } from "@/lib/types";
 import { discountUnit } from "@/lib/workRequestExpand";
+import { WorkRequestReuse } from "@/components/RecentRequests";
 
 type ProductRow = {
   id: number;
@@ -26,7 +27,15 @@ function newProduct(): ProductRow {
   return { id: ++seq, url: "", start: today(), opt: "", keyword: "", price: "", total: "", daily: "", review: "" };
 }
 
-export default function WorkRequestForm({ vendor, loginId }: { vendor: Vendor; loginId: string }) {
+export default function WorkRequestForm({
+  vendor,
+  loginId,
+  reuseSignal,
+}: {
+  vendor: Vendor;
+  loginId: string;
+  reuseSignal?: { data: WorkRequestReuse; key: number } | null;
+}) {
   const [options, setOptions] = useState({
     realShip: "N",
     taxBill: "N",
@@ -37,6 +46,29 @@ export default function WorkRequestForm({ vendor, loginId }: { vendor: Vendor; l
   const [products, setProducts] = useState<ProductRow[]>([newProduct()]);
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<{ type: "" | "ok" | "err"; text: string }>({ type: "", text: "" });
+
+  useEffect(() => {
+    if (!reuseSignal) return;
+    const r = reuseSignal.data;
+    setOptions(r.options);
+    setProducts((prev) => {
+      const filled = prev.filter((p) => p.keyword.trim() || p.url.trim());
+      const reused: ProductRow = {
+        id: ++seq,
+        url: r.productUrl,
+        start: today(),
+        opt: r.option,
+        keyword: r.keyword,
+        price: r.price,
+        total: r.total,
+        daily: r.daily,
+        review: r.review,
+      };
+      return [...filled, reused];
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reuseSignal]);
 
   const baseUnit = options.realShip === "Y" ? vendor.real_ship_price : vendor.empty_box_price;
 

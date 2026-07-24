@@ -29,6 +29,8 @@ export type AdminOrderRow = {
   delivery: string | null;
   tracking: string | null;
   remark: string | null;
+  order_image: string | null;
+  review_url: string | null;
   _group: "a" | "b" | null;
 };
 
@@ -37,6 +39,8 @@ type Field = keyof AdminOrderRow;
 function fmt(n: number | null) {
   return (n || 0).toLocaleString("ko-KR");
 }
+
+const LINK_FIELDS = new Set<Field>(["order_image", "review_url"]);
 
 const COLUMNS: { key: Field; label: string; align?: "right"; width?: string }[] = [
   { key: "seq", label: "순번" },
@@ -56,9 +60,11 @@ const COLUMNS: { key: Field; label: string; align?: "right"; width?: string }[] 
   { key: "account_text", label: "계좌", width: "max-w-[200px]" },
   { key: "amount", label: "금액", align: "right" },
   { key: "review_fee", label: "리뷰금액", align: "right" },
+  { key: "order_image", label: "구매이미지" },
   { key: "paid_date", label: "입금일" },
   { key: "delivery", label: "택배대행" },
   { key: "tracking", label: "운송장번호" },
+  { key: "review_url", label: "리뷰URL" },
   { key: "remark", label: "비고", width: "max-w-[160px]" },
 ];
 
@@ -206,13 +212,13 @@ export default function AdminOrdersTable({
           <thead className="sticky top-0 bg-neutral-800 text-white z-10">
             <tr>
               {COLUMNS.map((c) => (
-                <th key={c.key} className="px-2 py-2 text-left whitespace-nowrap border-r border-neutral-700">
+                <th key={c.key} className="px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700">
                   {c.label}
                 </th>
               ))}
-              <th className="px-2 py-2 text-left whitespace-nowrap border-r border-neutral-700">리뷰작성</th>
-              <th className="px-2 py-2 text-left whitespace-nowrap border-r border-neutral-700">입금</th>
-              <th className="px-2 py-2 text-left whitespace-nowrap"></th>
+              <th className="px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700">리뷰작성</th>
+              <th className="px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700">입금</th>
+              <th className="px-2 py-2 text-center whitespace-nowrap"></th>
             </tr>
           </thead>
           <tbody>
@@ -222,10 +228,17 @@ export default function AdminOrdersTable({
                   const isEditing = editing?.id === r.id && editing.field === c.key;
                   const val = r[c.key];
                   const groupBg = c.key === "seq" ? (r._group === "a" ? "#FFF1A6" : r._group === "b" ? "#FAD2E1" : undefined) : undefined;
+                  const isLink = LINK_FIELDS.has(c.key);
+                  const urls = isLink
+                    ? String(val || "")
+                        .split("\n")
+                        .map((s) => s.trim())
+                        .filter(Boolean)
+                    : [];
                   return (
                     <td
                       key={c.key}
-                      className={`px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap cursor-text hover:bg-black/5 ${c.align === "right" ? "text-right" : ""} ${c.width || ""}`}
+                      className={`px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 ${c.width || ""}`}
                       style={{ backgroundColor: groupBg }}
                       onClick={() => !isEditing && startEdit(r, c.key)}
                       title={typeof val === "string" ? val : undefined}
@@ -233,7 +246,7 @@ export default function AdminOrdersTable({
                       {isEditing ? (
                         <input
                           autoFocus
-                          className="w-full min-w-[80px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none"
+                          className="w-full min-w-[80px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={commitEdit}
@@ -242,6 +255,25 @@ export default function AdminOrdersTable({
                             if (e.key === "Escape") cancelEdit();
                           }}
                         />
+                      ) : isLink ? (
+                        urls.length ? (
+                          <span className="inline-flex gap-1">
+                            {urls.map((u, i) => (
+                              <a
+                                key={i}
+                                href={u}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                보기{urls.length > 1 ? i + 1 : ""}
+                              </a>
+                            ))}
+                          </span>
+                        ) : (
+                          ""
+                        )
                       ) : c.align === "right" ? (
                         fmt(val as number)
                       ) : (

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { clearVendorLoginId, getVendorLoginId } from "@/lib/vendorSession";
 import { supabase } from "@/lib/supabase";
 import WorkRequestForm from "@/components/WorkRequestForm";
+import RecentRequests, { WorkRequestReuse } from "@/components/RecentRequests";
 import { Vendor } from "@/lib/types";
 
 const emptyForm = { company_name: "", biz_no: "", owner_name: "", email: "" };
@@ -18,6 +19,8 @@ export default function VendorPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
   const [msg, setMsg] = useState("");
+  const [reuseSignal, setReuseSignal] = useState<{ data: WorkRequestReuse; key: number } | null>(null);
+  const [reuseKey, setReuseKey] = useState(0);
 
   useEffect(() => {
     const id = getVendorLoginId();
@@ -176,7 +179,18 @@ export default function VendorPage() {
                 </div>
               )}
 
-              {selected && <WorkRequestForm vendor={selected} loginId={loginId} />}
+              {selected && (
+                <RecentRequests
+                  vendorId={selected.id}
+                  onReuse={(data) => {
+                    const next = reuseKey + 1;
+                    setReuseKey(next);
+                    setReuseSignal({ data, key: next });
+                  }}
+                />
+              )}
+
+              {selected && <WorkRequestForm vendor={selected} loginId={loginId} reuseSignal={reuseSignal} />}
             </>
           )}
         </div>
