@@ -16,10 +16,10 @@ export const K_FLAG_INFO: Record<KFlag, { label: string; color: string }> = {
   blank: { label: "예정 미배정", color: "#FFB74D" },
   blacklist: { label: "블랙리스트", color: "#E53935" },
   already_done: { label: "이미 실진행됨", color: "#FFFFFF" },
-  safe: { label: "안전(최초 배정)", color: "#4DD0E1" },
-  whitelist: { label: "화이트리스트", color: "#F8BBD0" },
-  company_dup: { label: "업체 중복(21일내)", color: "#CE93D8" },
-  product_dup: { label: "상품 중복(21일내)", color: "#C5CAE9" },
+  safe: { label: "안전(최초 배정)", color: "#C5CAE9" },
+  whitelist: { label: "화이트리스트", color: "#CE93D8" },
+  company_dup: { label: "업체 중복(21일내)", color: "#F48FB1" },
+  product_dup: { label: "상품 중복(21일내)", color: "#4DD0E1" },
 };
 
 export const ADDRESS_DUP_COLOR = "#F48FB1";

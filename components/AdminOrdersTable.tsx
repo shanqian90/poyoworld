@@ -84,6 +84,8 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
   { key: "tracking", label: "운송장번호", defaultWidth: 110 },
 ];
 
+const TOGGLE_KEYS = new Set<Field>(COLUMNS.filter((c) => c.kind === "toggle").map((c) => c.key));
+
 export default function AdminOrdersTable({
   rows: initialRows,
   loadError,
@@ -104,6 +106,22 @@ export default function AdminOrdersTable({
   const [pendingDeletes, setPendingDeletes] = useState<
     { row: AdminOrderRow; index: number; timer: ReturnType<typeof setTimeout> }[]
   >([]);
+
+  const [hoverCell, setHoverCell] = useState<{ id: number; field: Field } | null>(null);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (editing) return;
+      if ((e.key !== "Delete" && e.key !== "Backspace") || !hoverCell) return;
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (TOGGLE_KEYS.has(hoverCell.field) || LINK_FIELDS.has(hoverCell.field) || hoverCell.field === "seq") return;
+      saveField(hoverCell.id, hoverCell.field, null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hoverCell, editing]);
 
   type NameEntry = { id: string; value: string };
   const [blacklistNames, setBlacklistNames] = useState<NameEntry[]>([]);
@@ -316,9 +334,6 @@ export default function AdminOrdersTable({
         <Link href="/admin/requests" className="text-xs font-bold text-emerald-700 underline">
           📝 작업요청서 →
         </Link>
-        <Link href="/admin/estimate" className="text-xs font-bold text-emerald-700 underline">
-          🧾 견적서 발행 →
-        </Link>
         <Link href="/admin/guides" className="text-xs font-bold text-emerald-700 underline">
           🌷 구매가이드 →
         </Link>
@@ -455,7 +470,10 @@ export default function AdminOrdersTable({
       )}
 
       <div className="border border-neutral-300 rounded-xl overflow-auto flex-1">
-        <table className="text-xs border-collapse" style={{ tableLayout: "fixed" }}>
+        <table
+          className="text-xs border-collapse"
+          style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 36) }}
+        >
           <colgroup>
             {COLUMNS.map((c) => (
               <col key={c.key} style={{ width: widths[c.key] }} />
@@ -529,9 +547,11 @@ export default function AdminOrdersTable({
                   return (
                     <td
                       key={c.key}
-                      className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis"
+                      className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis select-none"
                       style={{ backgroundColor: flagBg }}
                       onClick={() => !isEditing && startEdit(r, c.key)}
+                      onMouseEnter={() => setHoverCell({ id: r.id, field: c.key })}
+                      onMouseLeave={() => setHoverCell((h) => (h && h.id === r.id && h.field === c.key ? null : h))}
                       title={flagTitle || (typeof val === "string" ? val : undefined)}
                     >
                       {isEditing ? (

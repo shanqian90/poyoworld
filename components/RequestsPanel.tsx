@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 
 export type WorkRequestRow = {
@@ -57,7 +57,7 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
   { key: "image_url", label: "이미지", defaultWidth: 70 },
   { key: "weekend_work", label: "주말진행", kind: "bool", defaultWidth: 80 },
   { key: "unit_price", label: "계약단가", align: "right", defaultWidth: 80 },
-  { key: "product_url", label: "진행제품URL", defaultWidth: 90 },
+  { key: "product_url", label: "진행제품URL", defaultWidth: 70 },
   { key: "product_option", label: "제품옵션", defaultWidth: 100 },
   { key: "product_price", label: "제품판매가", align: "right", defaultWidth: 90 },
   { key: "keyword", label: "검색키워드", defaultWidth: 120 },
@@ -69,7 +69,7 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
   { key: "delivery_agency", label: "택배대행", kind: "bool", defaultWidth: 80 },
   { key: "tax_bill", label: "세금계산서", kind: "bool", defaultWidth: 80 },
   { key: "biz_file_url", label: "사업자등록증", defaultWidth: 90 },
-  { key: "status", label: "진행상태", defaultWidth: 90 },
+  { key: "status", label: "진행상태 (접수/대기/진행중)", defaultWidth: 130 },
   { key: "main_created", label: "생성", kind: "bool", defaultWidth: 70 },
   { key: "memo", label: "업체요구사항", defaultWidth: 140 },
 ];
@@ -94,6 +94,21 @@ export default function RequestsPanel({
   const [editing, setEditing] = useState<{ id: number; field: Field } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [hoverCell, setHoverCell] = useState<{ id: number; field: Field } | null>(null);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (editing) return;
+      if ((e.key !== "Delete" && e.key !== "Backspace") || !hoverCell) return;
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (BOOL_FIELDS.has(hoverCell.field) || LINK_FIELDS.has(hoverCell.field)) return;
+      saveField(hoverCell.id, hoverCell.field, null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hoverCell, editing]);
 
   async function saveField(id: number, field: Field, value: string | number | boolean | null) {
     setSavingId(id);
@@ -231,6 +246,12 @@ export default function RequestsPanel({
         </Link>
         <div className="text-lg font-extrabold text-neutral-700 ml-2">📝 작업요청서 목록</div>
         <span className="text-xs text-neutral-500">{filtered.length.toLocaleString("ko-KR")}건</span>
+        <Link href="/admin/estimate" className="text-xs font-bold text-emerald-700 underline">
+          🧾 견적서 발행 →
+        </Link>
+        <Link href="/admin/vendors" className="text-xs font-bold text-emerald-700 underline">
+          🏢 업체리스트 →
+        </Link>
         <div className="flex-1" />
         <input
           className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm w-56"
@@ -292,7 +313,10 @@ export default function RequestsPanel({
       )}
 
       <div className="border border-neutral-300 rounded-xl overflow-auto flex-1">
-        <table className="text-xs border-collapse" style={{ tableLayout: "fixed" }}>
+        <table
+          className="text-xs border-collapse"
+          style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 0) }}
+        >
           <colgroup>
             {COLUMNS.map((c) => (
               <col key={c.key} style={{ width: widths[c.key] }} />
@@ -340,11 +364,29 @@ export default function RequestsPanel({
                   return (
                     <td
                       key={c.key}
-                      className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center overflow-hidden text-ellipsis cursor-text hover:bg-black/5"
+                      className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center overflow-hidden text-ellipsis cursor-text hover:bg-black/5 select-none"
                       title={typeof val === "string" ? val : undefined}
                       onClick={() => !isEditing && !isLink && startEdit(r, c.key)}
+                      onMouseEnter={() => setHoverCell({ id: r.id, field: c.key })}
+                      onMouseLeave={() => setHoverCell((h) => (h && h.id === r.id && h.field === c.key ? null : h))}
                     >
-                      {isEditing ? (
+                      {isEditing && c.key === "status" ? (
+                        <select
+                          autoFocus
+                          className="w-full border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
+                          value={editValue}
+                          onChange={(e) => {
+                            setEditValue(e.target.value);
+                            saveField(r.id, "status", e.target.value);
+                            setEditing(null);
+                          }}
+                          onBlur={cancelEdit}
+                        >
+                          <option value="접수">접수</option>
+                          <option value="대기">대기</option>
+                          <option value="진행중">진행중</option>
+                        </select>
+                      ) : isEditing ? (
                         <input
                           autoFocus
                           className="w-full min-w-[36px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
