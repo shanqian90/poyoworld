@@ -125,6 +125,16 @@ export default function AdminGuideTable({
     setEditing(null);
   }
 
+  function moveEdit(delta: number) {
+    if (!editing) return;
+    const field = editing.field;
+    const id = editing.id;
+    commitEdit();
+    const idx = filtered.findIndex((r) => r.id === id);
+    const next = filtered[idx + delta];
+    if (next) startEdit(next, field);
+  }
+
   async function toggleBool(row: GuideProduct, field: "active") {
     await saveField(row.id, field, !row[field]);
   }
@@ -281,7 +291,14 @@ export default function AdminGuideTable({
                           onBlur={commitEdit}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") commitEdit();
-                            if (e.key === "Escape") cancelEdit();
+                            else if (e.key === "Escape") cancelEdit();
+                            else if (e.key === "ArrowDown") {
+                              e.preventDefault();
+                              moveEdit(1);
+                            } else if (e.key === "ArrowUp") {
+                              e.preventDefault();
+                              moveEdit(-1);
+                            }
                           }}
                         />
                       ) : isLink && val ? (

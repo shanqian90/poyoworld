@@ -93,12 +93,16 @@ export default function AdminOrdersTable({
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
   const [q, setQ] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
   const [editing, setEditing] = useState<{ id: number; field: Field } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
   const [widths, setWidths] = useState<Record<string, number>>(() =>
     Object.fromEntries(COLUMNS.map((c) => [c.key, c.defaultWidth]))
   );
+  const [pendingDeletes, setPendingDeletes] = useState<
+    { row: AdminOrderRow; index: number; timer: ReturnType<typeof setTimeout> }[]
+  >([]);
 
   function startResize(e: ReactMouseEvent, key: Field) {
     e.preventDefault();
@@ -119,14 +123,16 @@ export default function AdminOrdersTable({
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
-    if (!query) return rows;
+    const date = dateFilter.trim();
     return rows.filter((r) => {
+      if (date && r.date_mmdd !== date) return false;
+      if (!query) return true;
       const hay = [r.company_name, r.product_name, r.order_no, r.buyer, r.receiver, r.phone, r.address, r.tracking]
         .join(" ")
         .toLowerCase();
       return hay.includes(query);
     });
-  }, [rows, q]);
+  }, [rows, q, dateFilter]);
 
   async function saveField(id: number, field: Field, value: string | number | boolean | null) {
     setSavingId(id);
@@ -168,6 +174,16 @@ export default function AdminOrdersTable({
     setEditing(null);
   }
 
+  function moveEdit(delta: number) {
+    if (!editing) return;
+    const field = editing.field;
+    const id = editing.id;
+    commitEdit();
+    const idx = filtered.findIndex((r) => r.id === id);
+    const next = filtered[idx + delta];
+    if (next) startEdit(next, field);
+  }
+
   async function toggleBool(row: AdminOrderRow, field: "paid" | "review_done" | "company_paid") {
     await saveField(row.id, field, !row[field]);
   }
@@ -197,15 +213,40 @@ export default function AdminOrdersTable({
     }
   }
 
-  async function deleteRow(id: number) {
-    if (!confirm("이 행을 삭제할까요?")) return;
-    const res = await fetch(`/api/admin/orders/${id}`, { method: "DELETE" });
-    const data = await res.json();
-    if (!data.ok) {
-      alert(data.message || "삭제 실패");
-      return;
-    }
+  function deleteRow(id: number) {
+    const index = rows.findIndex((r) => r.id === id);
+    if (index === -1) return;
+    const row = rows[index];
     setRows((prev) => prev.filter((r) => r.id !== id));
+    const timer = setTimeout(async () => {
+      setPendingDeletes((prev) => prev.filter((p) => p.row.id !== id));
+      const res = await fetch(`/api/admin/orders/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.message || "삭제 실패");
+        setRows((prev) => {
+          const next = [...prev];
+          next.splice(index, 0, row);
+          return next;
+        });
+      }
+    }, 5000);
+    setPendingDeletes((prev) => [...prev, { row, index, timer }]);
+  }
+
+  function undoDelete(id: number) {
+    setPendingDeletes((prev) => {
+      const found = prev.find((p) => p.row.id === id);
+      if (found) {
+        clearTimeout(found.timer);
+        setRows((r) => {
+          const next = [...r];
+          next.splice(Math.min(found.index, next.length), 0, found.row);
+          return next;
+        });
+      }
+      return prev.filter((p) => p.row.id !== id);
+    });
   }
 
   return (
@@ -228,6 +269,13 @@ export default function AdminOrdersTable({
         </Link>
         <div className="flex-1" />
         <input
+          className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm w-24"
+          placeholder="날짜 MMDD"
+          maxLength={4}
+          value={dateFilter}
+          onChange={(e) => setDateFilter(e.target.value.replace(/[^0-9]/g, ""))}
+        />
+        <input
           className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm w-64"
           placeholder="업체명·제품명·주문번호·구매자·수취인·전화번호·운송장 검색"
           value={q}
@@ -244,6 +292,24 @@ export default function AdminOrdersTable({
           로그아웃
         </button>
       </div>
+
+      {pendingDeletes.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {pendingDeletes.map((p) => (
+            <div
+              key={p.row.id}
+              className="bg-neutral-800 text-white text-sm rounded-xl px-3 py-2 flex items-center gap-3"
+            >
+              <span>
+                {p.row.product_name || "행"} 삭제됨
+              </span>
+              <button className="text-rose-300 font-bold underline" onClick={() => undoDelete(p.row.id)}>
+                되돌리기
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {loadError && (
         <div className="bg-rose-100 border border-rose-300 text-rose-700 text-sm rounded-xl px-3 py-2">
@@ -324,7 +390,14 @@ export default function AdminOrdersTable({
                           onBlur={commitEdit}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") commitEdit();
-                            if (e.key === "Escape") cancelEdit();
+                            else if (e.key === "Escape") cancelEdit();
+                            else if (e.key === "ArrowDown") {
+                              e.preventDefault();
+                              moveEdit(1);
+                            } else if (e.key === "ArrowUp") {
+                              e.preventDefault();
+                              moveEdit(-1);
+                            }
                           }}
                         />
                       ) : isLink ? (

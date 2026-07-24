@@ -91,6 +91,62 @@ export default function RequestsPanel({
   const [widths, setWidths] = useState<Record<string, number>>(() =>
     Object.fromEntries(COLUMNS.map((c) => [c.key, c.defaultWidth]))
   );
+  const [editing, setEditing] = useState<{ id: number; field: Field } | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [savingId, setSavingId] = useState<number | null>(null);
+
+  async function saveField(id: number, field: Field, value: string | number | boolean | null) {
+    setSavingId(id);
+    try {
+      const res = await fetch(`/api/admin/requests/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field, value }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.message || "저장 실패");
+        return;
+      }
+      setItems((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+    } catch {
+      alert("저장 중 오류가 발생했습니다");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  function startEdit(row: WorkRequestRow, field: Field) {
+    setEditing({ id: row.id, field });
+    const v = row[field];
+    setEditValue(v == null ? "" : String(v));
+  }
+
+  function commitEdit() {
+    if (!editing) return;
+    const field = editing.field;
+    const raw = editValue.trim();
+    const isNumberField = field === "unit_price" || field === "product_price" || field === "total_count" || field === "deposit_amount";
+    const value = raw === "" ? null : isNumberField ? Number(raw) : raw;
+    saveField(editing.id, field, value);
+    setEditing(null);
+  }
+
+  function cancelEdit() {
+    setEditing(null);
+  }
+
+  async function toggleBool(row: WorkRequestRow, field: Field) {
+    await saveField(row.id, field, !row[field]);
+  }
+
+  function moveEdit(delta: number) {
+    if (!editing) return;
+    commitEdit();
+    const idx = filtered.findIndex((r) => r.id === editing.id);
+    const next = filtered[idx + delta];
+    if (next) startEdit(next, editing.field);
+  }
 
   function startResize(e: ReactMouseEvent, key: Field) {
     e.preventDefault();
@@ -267,24 +323,47 @@ export default function RequestsPanel({
                     const on = !!val;
                     return (
                       <td key={c.key} className="px-2 py-1.5 border-r border-neutral-200 text-center overflow-hidden">
-                        <span
+                        <button
                           className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
                             on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
                           }`}
+                          onClick={() => toggleBool(r, c.key)}
+                          disabled={savingId === r.id}
                         >
-                          {c.key === "main_created" ? (on ? "생성완료" : "-") : on ? "예" : "아니오"}
-                        </span>
+                          {c.key === "main_created" ? (on ? "생성완료" : "아니오") : on ? "예" : "아니오"}
+                        </button>
                       </td>
                     );
                   }
                   const isLink = LINK_FIELDS.has(c.key);
+                  const isEditing = editing?.id === r.id && editing.field === c.key;
                   return (
                     <td
                       key={c.key}
-                      className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center overflow-hidden text-ellipsis"
+                      className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center overflow-hidden text-ellipsis cursor-text hover:bg-black/5"
                       title={typeof val === "string" ? val : undefined}
+                      onClick={() => !isEditing && !isLink && startEdit(r, c.key)}
                     >
-                      {c.key === "status" ? (
+                      {isEditing ? (
+                        <input
+                          autoFocus
+                          className="w-full min-w-[36px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={commitEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitEdit();
+                            else if (e.key === "Escape") cancelEdit();
+                            else if (e.key === "ArrowDown") {
+                              e.preventDefault();
+                              moveEdit(1);
+                            } else if (e.key === "ArrowUp") {
+                              e.preventDefault();
+                              moveEdit(-1);
+                            }
+                          }}
+                        />
+                      ) : c.key === "status" ? (
                         <span
                           className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
                             r.main_created ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
