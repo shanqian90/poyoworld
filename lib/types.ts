@@ -46,6 +46,7 @@ export type GuideProduct = {
   delivery: string | null;
   image_url: string | null;
   deadline: string | null;
+  checked_at: string | null;
 };
 
 export type OrderRow = {

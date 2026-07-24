@@ -189,6 +189,9 @@ create policy guide_products_insert on guide_products for insert with check (tru
 drop policy if exists guide_products_update on guide_products;
 create policy guide_products_update on guide_products for update using (true) with check (true);
 
+drop policy if exists guide_products_delete on guide_products;
+create policy guide_products_delete on guide_products for delete using (true);
+
 drop policy if exists orders_all on orders;
 create policy orders_all on orders for all using (true) with check (true);
 
