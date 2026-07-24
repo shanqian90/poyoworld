@@ -204,6 +204,22 @@ create policy blacklist_select on blacklist for select using (true);
 drop policy if exists whitelist_select on whitelist;
 create policy whitelist_select on whitelist for select using (true);
 
+-- 메인시트 예정(진행자) 이름 기준 블랙/화이트리스트도 같은 테이블에 type='name'으로 저장
+alter table blacklist drop constraint if exists blacklist_type_check;
+alter table blacklist add constraint blacklist_type_check check (type in ('phone', 'kakao_id', 'name'));
+alter table whitelist drop constraint if exists whitelist_type_check;
+alter table whitelist add constraint whitelist_type_check check (type in ('phone', 'kakao_id', 'name'));
+
+drop policy if exists blacklist_insert on blacklist;
+create policy blacklist_insert on blacklist for insert with check (true);
+drop policy if exists blacklist_delete on blacklist;
+create policy blacklist_delete on blacklist for delete using (true);
+
+drop policy if exists whitelist_insert on whitelist;
+create policy whitelist_insert on whitelist for insert with check (true);
+drop policy if exists whitelist_delete on whitelist;
+create policy whitelist_delete on whitelist for delete using (true);
+
 -- ============================================================
 -- Storage 버킷 (구매/리뷰 이미지)
 -- ============================================================

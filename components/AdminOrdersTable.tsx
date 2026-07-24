@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { computeKFlags, computeAddressDupFlags, computeBatchCompleteFlags, K_FLAG_INFO, ADDRESS_DUP_COLOR, BATCH_COMPLETE_COLOR } from "@/lib/mainFlags";
 
 export type AdminOrderRow = {
   id: number;
@@ -103,6 +104,63 @@ export default function AdminOrdersTable({
   const [pendingDeletes, setPendingDeletes] = useState<
     { row: AdminOrderRow; index: number; timer: ReturnType<typeof setTimeout> }[]
   >([]);
+
+  type NameEntry = { id: string; value: string };
+  const [blacklistNames, setBlacklistNames] = useState<NameEntry[]>([]);
+  const [whitelistNames, setWhitelistNames] = useState<NameEntry[]>([]);
+  const [showNameManager, setShowNameManager] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newNameKind, setNewNameKind] = useState<"blacklist" | "whitelist">("blacklist");
+
+  useEffect(() => {
+    loadNameLists();
+  }, []);
+
+  async function loadNameLists() {
+    try {
+      const res = await fetch("/api/admin/name-list");
+      const data = await res.json();
+      if (data.ok) {
+        setBlacklistNames(data.blacklist || []);
+        setWhitelistNames(data.whitelist || []);
+      }
+    } catch {
+      /* 무시 - 목록 없이도 표는 동작 */
+    }
+  }
+
+  async function addNameEntry() {
+    const value = newName.trim();
+    if (!value) return;
+    const res = await fetch("/api/admin/name-list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: newNameKind, value }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      alert(data.message || "추가 실패");
+      return;
+    }
+    setNewName("");
+    loadNameLists();
+  }
+
+  async function removeNameEntry(kind: "blacklist" | "whitelist", id: string) {
+    const res = await fetch(`/api/admin/name-list?kind=${kind}&id=${id}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!data.ok) {
+      alert(data.message || "삭제 실패");
+      return;
+    }
+    loadNameLists();
+  }
+
+  const blacklistSet = useMemo(() => new Set(blacklistNames.map((n) => n.value)), [blacklistNames]);
+  const whitelistSet = useMemo(() => new Set(whitelistNames.map((n) => n.value)), [whitelistNames]);
+  const kFlags = useMemo(() => computeKFlags(rows, blacklistSet, whitelistSet), [rows, blacklistSet, whitelistSet]);
+  const addressDupFlags = useMemo(() => computeAddressDupFlags(rows), [rows]);
+  const batchCompleteFlags = useMemo(() => computeBatchCompleteFlags(rows), [rows]);
 
   function startResize(e: ReactMouseEvent, key: Field) {
     e.preventDefault();
@@ -282,6 +340,12 @@ export default function AdminOrdersTable({
           onChange={(e) => setQ(e.target.value)}
         />
         <button
+          className="text-xs border border-neutral-300 rounded-lg px-3 py-1.5 font-bold text-neutral-600"
+          onClick={() => setShowNameManager((v) => !v)}
+        >
+          🚩 예정 블랙/화이트리스트
+        </button>
+        <button
           className="text-xs bg-neutral-800 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
           onClick={addRow}
           disabled={adding}
@@ -292,6 +356,79 @@ export default function AdminOrdersTable({
           로그아웃
         </button>
       </div>
+
+      {showNameManager && (
+        <div className="border border-neutral-300 rounded-xl p-3 bg-neutral-50 flex flex-col gap-3">
+          <div className="flex flex-wrap gap-3 text-[11px] font-bold">
+            {(Object.keys(K_FLAG_INFO) as (keyof typeof K_FLAG_INFO)[]).map((k) => (
+              <span key={k} className="flex items-center gap-1">
+                <span className="w-3 h-3 rounded border border-neutral-300" style={{ backgroundColor: K_FLAG_INFO[k].color }} />
+                {K_FLAG_INFO[k].label}
+              </span>
+            ))}
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded border border-neutral-300" style={{ backgroundColor: ADDRESS_DUP_COLOR }} />
+              주소 중복(주소열)
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded border border-neutral-300" style={{ backgroundColor: BATCH_COMPLETE_COLOR }} />
+              해당건 완료(실진행열)
+            </span>
+          </div>
+
+          <div className="flex gap-2 items-center">
+            <select
+              className="border border-neutral-300 rounded-lg px-2 py-1.5 text-sm"
+              value={newNameKind}
+              onChange={(e) => setNewNameKind(e.target.value as "blacklist" | "whitelist")}
+            >
+              <option value="blacklist">블랙리스트</option>
+              <option value="whitelist">화이트리스트</option>
+            </select>
+            <input
+              className="border border-neutral-300 rounded-lg px-2 py-1.5 text-sm flex-1"
+              placeholder="진행자 이름"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addNameEntry()}
+            />
+            <button className="text-xs bg-neutral-800 text-white rounded-lg px-3 py-1.5 font-bold" onClick={addNameEntry}>
+              추가
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-xs font-bold text-rose-600 mb-1">블랙리스트</div>
+              <div className="flex flex-wrap gap-1.5">
+                {blacklistNames.map((n) => (
+                  <span key={n.id} className="bg-rose-100 text-rose-700 text-xs rounded-full px-2 py-0.5 flex items-center gap-1">
+                    {n.value}
+                    <button className="font-bold" onClick={() => removeNameEntry("blacklist", n.id)}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {!blacklistNames.length && <span className="text-xs text-neutral-400">없음</span>}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-bold text-blue-600 mb-1">화이트리스트</div>
+              <div className="flex flex-wrap gap-1.5">
+                {whitelistNames.map((n) => (
+                  <span key={n.id} className="bg-blue-100 text-blue-700 text-xs rounded-full px-2 py-0.5 flex items-center gap-1">
+                    {n.value}
+                    <button className="font-bold" onClick={() => removeNameEntry("whitelist", n.id)}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {!whitelistNames.length && <span className="text-xs text-neutral-400">없음</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pendingDeletes.length > 0 && (
         <div className="flex flex-col gap-1.5">
@@ -365,7 +502,23 @@ export default function AdminOrdersTable({
                   }
                   const isEditing = editing?.id === r.id && editing.field === c.key;
                   const val = r[c.key];
-                  const groupBg = c.key === "seq" ? (r._group === "a" ? "#FFF1A6" : r._group === "b" ? "#FAD2E1" : undefined) : undefined;
+                  let flagBg: string | undefined;
+                  let flagTitle: string | undefined;
+                  if (c.key === "seq") {
+                    flagBg = r._group === "a" ? "#FFF1A6" : r._group === "b" ? "#FAD2E1" : undefined;
+                  } else if (c.key === "manager") {
+                    const flag = kFlags.get(r.id);
+                    if (flag) {
+                      flagBg = K_FLAG_INFO[flag].color;
+                      flagTitle = K_FLAG_INFO[flag].label;
+                    }
+                  } else if (c.key === "address" && addressDupFlags.has(r.id)) {
+                    flagBg = ADDRESS_DUP_COLOR;
+                    flagTitle = "주소 중복(21일내)";
+                  } else if (c.key === "real_manager" && batchCompleteFlags.has(r.id)) {
+                    flagBg = BATCH_COMPLETE_COLOR;
+                    flagTitle = "해당건 완료";
+                  }
                   const isLink = LINK_FIELDS.has(c.key);
                   const urls = isLink
                     ? String(val || "")
@@ -377,9 +530,9 @@ export default function AdminOrdersTable({
                     <td
                       key={c.key}
                       className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis"
-                      style={{ backgroundColor: groupBg }}
+                      style={{ backgroundColor: flagBg }}
                       onClick={() => !isEditing && startEdit(r, c.key)}
-                      title={typeof val === "string" ? val : undefined}
+                      title={flagTitle || (typeof val === "string" ? val : undefined)}
                     >
                       {isEditing ? (
                         <input
