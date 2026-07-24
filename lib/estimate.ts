@@ -272,16 +272,20 @@ export function buildPreviewHtml(data: EstimateData): string {
   const depositStatusText = data.depositEnabled ? txt.proceed : txt.notProceed;
   const showCny = lang === "zh";
 
+  const vc = (content: string, cls = "", colspan = 1) =>
+    `<td class="${cls}"${colspan > 1 ? ` colspan="${colspan}"` : ""}><div class="vc">${content}</div></td>`;
+  const vth = (content: string) => `<th><div class="vc">${content}</div></th>`;
+
   const depositRowsHtml = data.items
     .map(
       (item) =>
-        `<tr><td>${escapeHtml(item.productName)}</td><td class="num">${dualMoneyHtml(item.productAmount, item.productAmountCny, txt, showCny)}</td><td class="num">${fmt(item.workQty)}</td><td class="num">${dualMoneyHtml(item.depositSupply, item.depositSupplyCny, txt, showCny)}</td><td class="num">${dualMoneyHtml(item.depositTax, item.depositTaxCny, txt, showCny)}</td><td class="num">${dualMoneyHtml(item.depositFee, item.depositFeeCny, txt, showCny)}</td><td class="num">${dualMoneyHtml(item.depositTotal, item.depositTotalCny, txt, showCny)}</td></tr>`
+        `<tr>${vc(escapeHtml(item.productName))}${vc(dualMoneyHtml(item.productAmount, item.productAmountCny, txt, showCny), "num")}${vc(fmt(item.workQty), "num")}${vc(dualMoneyHtml(item.depositSupply, item.depositSupplyCny, txt, showCny), "num")}${vc(dualMoneyHtml(item.depositTax, item.depositTaxCny, txt, showCny), "num")}${vc(dualMoneyHtml(item.depositFee, item.depositFeeCny, txt, showCny), "num")}${vc(dualMoneyHtml(item.depositTotal, item.depositTotalCny, txt, showCny), "num")}</tr>`
     )
     .join("");
   const workRowsHtml = data.items
     .map(
       (item) =>
-        `<tr><td>${escapeHtml(item.productName)}</td><td class="num">${dualMoneyHtml(item.workUnit, item.workUnitCny, txt, showCny)}</td><td class="num">${fmt(item.workQty)}</td><td class="num">${dualMoneyHtml(item.workSupply, item.workSupplyCny, txt, showCny)}</td><td class="num">${dualMoneyHtml(item.workTax, item.workTaxCny, txt, showCny)}</td><td class="num">${dualMoneyHtml(item.workFee, item.workFeeCny, txt, showCny)}</td><td class="num">${dualMoneyHtml(item.workTotal, item.workTotalCny, txt, showCny)}</td></tr>`
+        `<tr>${vc(escapeHtml(item.productName))}${vc(dualMoneyHtml(item.workUnit, item.workUnitCny, txt, showCny), "num")}${vc(fmt(item.workQty), "num")}${vc(dualMoneyHtml(item.workSupply, item.workSupplyCny, txt, showCny), "num")}${vc(dualMoneyHtml(item.workTax, item.workTaxCny, txt, showCny), "num")}${vc(dualMoneyHtml(item.workFee, item.workFeeCny, txt, showCny), "num")}${vc(dualMoneyHtml(item.workTotal, item.workTotalCny, txt, showCny), "num")}</tr>`
     )
     .join("");
 
@@ -315,8 +319,8 @@ export function buildPreviewHtml(data: EstimateData): string {
   const deliveryCardLines = txt.deliveryFormula1 + moneyLineHtml(Number(s.deliveryTotal), s.deliveryTotalCny, txt, showCny);
 
   const exchangeRowHtml = showCny
-    ? `<tr><th>${txt.deposit}</th><td>${depositStatusText}</td><th>${txt.exchangeRate}</th><td colspan="3">${s.exchangeRate ? "1" + txt.cny + " = " + fmt(s.exchangeRate) + txt.krw : "-"}</td></tr>`
-    : `<tr><th>${txt.deposit}</th><td colspan="5">${depositStatusText}</td></tr>`;
+    ? `<tr>${vth(txt.deposit)}${vc(depositStatusText)}${vth(txt.exchangeRate)}${vc(s.exchangeRate ? "1" + txt.cny + " = " + fmt(s.exchangeRate) + txt.krw : "-", "", 3)}</tr>`
+    : `<tr>${vth(txt.deposit)}${vc(depositStatusText, "", 5)}</tr>`;
 
   return (
     "" +
@@ -325,12 +329,13 @@ export function buildPreviewHtml(data: EstimateData): string {
     ".estimate-wrap .brand{font-size:13px;text-align:center;margin-bottom:8px}" +
     ".estimate-wrap .title{font-size:26px;font-weight:800;text-align:center;margin-bottom:16px}" +
     ".estimate-wrap .meta-table{width:100%;border-collapse:collapse;font-size:12px}" +
-    ".estimate-wrap .meta-table th,.estimate-wrap .meta-table td{border:1px solid #000;padding:8px 6px;text-align:center}" +
+    ".estimate-wrap .meta-table th,.estimate-wrap .meta-table td{border:1px solid #000;padding:0;text-align:center}" +
     ".estimate-wrap .meta-table th{background:#efefef;font-weight:700}" +
     ".estimate-wrap .section-title{margin-top:14px;margin-bottom:6px;font-size:14px;font-weight:800}" +
     ".estimate-wrap table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}" +
-    ".estimate-wrap th,.estimate-wrap td{border:1px solid #000;padding:8px 6px;text-align:center;vertical-align:middle}" +
+    ".estimate-wrap th,.estimate-wrap td{border:1px solid #000;padding:0;text-align:center}" +
     ".estimate-wrap th{background:#d8c6aa}.estimate-wrap .num{text-align:center}" +
+    ".estimate-wrap .vc{display:flex;align-items:center;justify-content:center;min-height:38px;padding:8px 6px;text-align:center}" +
     ".estimate-wrap .money-krw{display:block;font-weight:700}" +
     ".estimate-wrap .money-cny{display:block;font-size:11px;color:#8a6d3b;margin-top:2px}" +
     ".estimate-wrap .cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}" +
@@ -353,13 +358,13 @@ export function buildPreviewHtml(data: EstimateData): string {
     `<div class="brand">${txt.brand}</div>` +
     `<div class="title">${escapeHtml(data.companyName)} ${txt.previewTitle}</div>` +
     '<table class="meta-table">' +
-    `<tr><th>${txt.companyName}</th><td>${escapeHtml(data.companyName)}</td><th>${txt.writeDate}</th><td>${escapeHtml(data.writeDate)}</td><th>${txt.vat}</th><td>${data.vatEnabled ? txt.include : txt.exclude}</td></tr>` +
+    `<tr>${vth(txt.companyName)}${vc(escapeHtml(data.companyName))}${vth(txt.writeDate)}${vc(escapeHtml(data.writeDate))}${vth(txt.vat)}${vc(data.vatEnabled ? txt.include : txt.exclude)}</tr>` +
     exchangeRowHtml +
     "</table>" +
     `<div class="section-title">${txt.productTableTitle}</div>` +
-    `<table><thead><tr><th>${txt.productName}</th><th>${txt.productAmount}</th><th>${txt.workQty}</th><th>${txt.productPriceLabel}</th><th>${txt.vatAmount}</th><th>${txt.feeAmount}</th><th>${txt.total}</th></tr></thead><tbody>${depositRowsHtml}</tbody></table>` +
+    `<table><thead><tr>${vth(txt.productName)}${vth(txt.productAmount)}${vth(txt.workQty)}${vth(txt.productPriceLabel)}${vth(txt.vatAmount)}${vth(txt.feeAmount)}${vth(txt.total)}</tr></thead><tbody>${depositRowsHtml}</tbody></table>` +
     `<div class="section-title">${txt.workTableTitle}</div>` +
-    `<table><thead><tr><th>${txt.productName}</th><th>${txt.workUnit}</th><th>${txt.workQty}</th><th>${txt.workSupply}</th><th>${txt.vatAmount}</th><th>${txt.feeAmount}</th><th>${txt.total}</th></tr></thead><tbody>${workRowsHtml}</tbody></table>` +
+    `<table><thead><tr>${vth(txt.productName)}${vth(txt.workUnit)}${vth(txt.workQty)}${vth(txt.workSupply)}${vth(txt.vatAmount)}${vth(txt.feeAmount)}${vth(txt.total)}</tr></thead><tbody>${workRowsHtml}</tbody></table>` +
     '<div class="cards">' +
     `<div class="card"><div class="ct">${txt.workTotalLabel}</div><div class="cm">${fmt(Number(s.workTotal))}${txt.krw}${showCny && s.workTotalCny !== "" ? `<span class="cny">${fmtCny(s.workTotalCny)}${txt.cny}</span>` : ""}</div><div class="cs">${workCardLines}</div></div>` +
     `<div class="card"><div class="ct">${txt.depositTotalLabel}</div><div class="cm">${fmt(Number(s.depositTotal))}${txt.krw}${showCny && s.depositTotalCny !== "" ? `<span class="cny">${fmtCny(s.depositTotalCny)}${txt.cny}</span>` : ""}</div><div class="cs">${depositCardLines}</div></div>` +
