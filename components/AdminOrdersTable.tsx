@@ -182,6 +182,9 @@ export default function AdminOrdersTable({
         <Link href="/admin/requests" className="text-xs font-bold text-emerald-700 underline">
           📝 작업요청서 →
         </Link>
+        <Link href="/admin/tools" className="text-xs font-bold text-emerald-700 underline">
+          🧰 관리도구 →
+        </Link>
         <div className="flex-1" />
         <input
           className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm w-64"
