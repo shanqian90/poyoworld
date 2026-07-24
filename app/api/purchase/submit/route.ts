@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     const rowByOrderNo = new Map(claimedRows.map((r) => [r.order_no, r.id]));
 
     let noImageCount = 0;
-    const results: { orderNo: string; ok: boolean; message?: string }[] = [];
+    const results: { orderNo: string; ok: boolean; message?: string; images?: string[] }[] = [];
 
     for (const s of submissions) {
       const rowId = rowByOrderNo.get(String(s.orderNo).trim());
@@ -94,10 +94,10 @@ export async function POST(req: NextRequest) {
       }
       try {
         let imageUrl = "";
+        const uploaded: string[] = [];
         if (s.noImage) {
           noImageCount++;
         } else {
-          const uploaded: string[] = [];
           for (let i = 0; i < s.images.length; i++) {
             const { mime } = parseDataUrl(s.images[i]);
             const ext = extFromMime(mime);
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
           })
           .eq("id", rowId);
         if (updErr) throw new Error(updErr.message);
-        results.push({ orderNo: s.orderNo, ok: true });
+        results.push({ orderNo: s.orderNo, ok: true, images: uploaded });
       } catch (err) {
         results.push({
           orderNo: s.orderNo,

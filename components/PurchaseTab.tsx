@@ -35,6 +35,9 @@ export default function PurchaseTab({
   });
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [submittedList, setSubmittedList] = useState<
+    { store: string; orderNo: string; images: string[] }[]
+  >([]);
 
   useEffect(() => {
     if (dateText === todayMMDD()) setSlotMap(todayMap);
@@ -168,6 +171,17 @@ export default function PurchaseTab({
         type: "ok",
         text: `🌸 제출완료 🌸\n총 ${data.count}건이 정상 저장되었습니다\n주문번호\n${orderNos.join("\n")}`,
       });
+      type SubmitResult = { orderNo: string; ok: boolean; images?: string[] };
+      const resultByOrderNo = new Map<string, SubmitResult>(
+        (data.results || []).map((r: SubmitResult) => [r.orderNo, r])
+      );
+      setSubmittedList(
+        checkedAccounts.map((acc) => ({
+          store: acc.store,
+          orderNo: accState[acc.id].orderNo.trim(),
+          images: resultByOrderNo.get(accState[acc.id].orderNo.trim())?.images || [],
+        }))
+      );
       setDone(true);
       onAfterSubmit();
     } catch {
@@ -181,6 +195,7 @@ export default function PurchaseTab({
     setAccState({});
     setStatus({ type: "", text: "" });
     setDone(false);
+    setSubmittedList([]);
     setDateText(todayMMDD());
     loadSlots(todayMMDD());
   }
@@ -356,6 +371,32 @@ export default function PurchaseTab({
           }`}
         >
           {status.text}
+        </div>
+      )}
+
+      {done && submittedList.length > 0 && (
+        <div className="mt-3 flex flex-col gap-2">
+          <div className="text-sm font-bold text-neutral-600">📋 방금 제출한 내역</div>
+          {submittedList.map((s) => (
+            <div key={s.orderNo} className="border border-rose-200 rounded-xl px-3 py-2">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-extrabold">{s.store}</div>
+                <div className="text-xs text-neutral-500">{s.orderNo}</div>
+              </div>
+              {s.images.length > 0 ? (
+                <div className="flex gap-2 mt-2 flex-wrap">
+                  {s.images.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="" className="w-16 h-16 rounded-lg object-cover border border-rose-200" />
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-neutral-400 mt-1">이미지 없음</div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

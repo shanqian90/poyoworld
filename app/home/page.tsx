@@ -35,6 +35,12 @@ export default function HomePage() {
 
   async function load(id: string) {
     setLoading(true);
+    await refresh(id);
+    setLoading(false);
+  }
+
+  // 탭 내용을 언마운트하지 않는 조용한 새로고침 (제출 후 등 화면 상태를 유지해야 할 때 사용)
+  async function refresh(id: string) {
     setError("");
     try {
       const res = await fetch("/api/login", {
@@ -52,8 +58,6 @@ export default function HomePage() {
       setTodayMap(data.todayMap || {});
     } catch {
       setError("불러오는 중 오류가 발생했습니다");
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -120,7 +124,7 @@ export default function HomePage() {
                   accounts={accounts}
                   todayMap={todayMap}
                   prefill={prefill}
-                  onAfterSubmit={() => load(kakaoId)}
+                  onAfterSubmit={() => refresh(kakaoId)}
                 />
               </div>
               <div style={{ display: tab === "review" ? "block" : "none" }}>
