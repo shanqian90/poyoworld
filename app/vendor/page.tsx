@@ -6,6 +6,7 @@ import { clearVendorLoginId, getVendorLoginId } from "@/lib/vendorSession";
 import { supabase } from "@/lib/supabase";
 import WorkRequestForm from "@/components/WorkRequestForm";
 import RecentRequests, { WorkRequestReuse } from "@/components/RecentRequests";
+import VendorProgressTab from "@/components/VendorProgressTab";
 import { Vendor } from "@/lib/types";
 
 const emptyForm = { company_name: "", biz_no: "", owner_name: "", email: "" };
@@ -21,6 +22,7 @@ export default function VendorPage() {
   const [msg, setMsg] = useState("");
   const [reuseSignal, setReuseSignal] = useState<{ data: WorkRequestReuse; key: number } | null>(null);
   const [reuseKey, setReuseKey] = useState(0);
+  const [activeTab, setActiveTab] = useState<"request" | "progress">("request");
 
   useEffect(() => {
     const id = getVendorLoginId();
@@ -129,68 +131,95 @@ export default function VendorPage() {
                 </div>
               )}
 
-              <button
-                className="text-xs text-emerald-700 underline mb-3"
-                onClick={() => setShowAdd((v) => !v)}
-              >
-                {showAdd ? "닫기" : "+ 새 업체 등록"}
-              </button>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <button
+                  className={`text-sm font-bold rounded-xl py-2.5 border ${
+                    activeTab === "request" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white border-emerald-200 text-emerald-700"
+                  }`}
+                  onClick={() => setActiveTab("request")}
+                >
+                  📝 작업요청서
+                </button>
+                <button
+                  className={`text-sm font-bold rounded-xl py-2.5 border ${
+                    activeTab === "progress" ? "bg-emerald-600 text-white border-emerald-600" : "bg-white border-emerald-200 text-emerald-700"
+                  }`}
+                  onClick={() => setActiveTab("progress")}
+                >
+                  📊 진행상황확인
+                </button>
+              </div>
 
-              {showAdd && (
-                <div className="border-2 border-emerald-200 rounded-xl p-3 mb-4 bg-emerald-50/40">
-                  <div className="flex flex-col gap-2">
-                    <input
-                      className="border border-emerald-200 rounded-lg px-3 py-2 text-sm"
-                      placeholder="업체명 *"
-                      value={form.company_name}
-                      onChange={(e) => setForm({ ...form, company_name: e.target.value })}
-                    />
-                    <input
-                      className="border border-emerald-200 rounded-lg px-3 py-2 text-sm"
-                      placeholder="사업자번호"
-                      value={form.biz_no}
-                      onChange={(e) => setForm({ ...form, biz_no: e.target.value })}
-                    />
-                    <input
-                      className="border border-emerald-200 rounded-lg px-3 py-2 text-sm"
-                      placeholder="대표자명"
-                      value={form.owner_name}
-                      onChange={(e) => setForm({ ...form, owner_name: e.target.value })}
-                    />
-                    <input
-                      className="border border-emerald-200 rounded-lg px-3 py-2 text-sm"
-                      placeholder="이메일"
-                      value={form.email}
-                      onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    />
-                  </div>
+              {activeTab === "request" && (
+                <>
                   <button
-                    className="w-full mt-2 bg-emerald-600 text-white font-extrabold rounded-lg py-2 text-sm"
-                    onClick={addVendor}
+                    className="text-xs text-emerald-700 underline mb-3"
+                    onClick={() => setShowAdd((v) => !v)}
                   >
-                    등록
+                    {showAdd ? "닫기" : "+ 새 업체 등록"}
                   </button>
-                </div>
+
+                  {showAdd && (
+                    <div className="border-2 border-emerald-200 rounded-xl p-3 mb-4 bg-emerald-50/40">
+                      <div className="flex flex-col gap-2">
+                        <input
+                          className="border border-emerald-200 rounded-lg px-3 py-2 text-sm"
+                          placeholder="업체명 *"
+                          value={form.company_name}
+                          onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                        />
+                        <input
+                          className="border border-emerald-200 rounded-lg px-3 py-2 text-sm"
+                          placeholder="사업자번호"
+                          value={form.biz_no}
+                          onChange={(e) => setForm({ ...form, biz_no: e.target.value })}
+                        />
+                        <input
+                          className="border border-emerald-200 rounded-lg px-3 py-2 text-sm"
+                          placeholder="대표자명"
+                          value={form.owner_name}
+                          onChange={(e) => setForm({ ...form, owner_name: e.target.value })}
+                        />
+                        <input
+                          className="border border-emerald-200 rounded-lg px-3 py-2 text-sm"
+                          placeholder="이메일"
+                          value={form.email}
+                          onChange={(e) => setForm({ ...form, email: e.target.value })}
+                        />
+                      </div>
+                      <button
+                        className="w-full mt-2 bg-emerald-600 text-white font-extrabold rounded-lg py-2 text-sm"
+                        onClick={addVendor}
+                      >
+                        등록
+                      </button>
+                    </div>
+                  )}
+
+                  {msg && (
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-xl px-3 py-2 mb-3">
+                      {msg}
+                    </div>
+                  )}
+
+                  {selected && (
+                    <RecentRequests
+                      vendorId={selected.id}
+                      onReuse={(data) => {
+                        const next = reuseKey + 1;
+                        setReuseKey(next);
+                        setReuseSignal({ data, key: next });
+                      }}
+                    />
+                  )}
+
+                  {selected && <WorkRequestForm vendor={selected} loginId={loginId} reuseSignal={reuseSignal} />}
+                </>
               )}
 
-              {msg && (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-xl px-3 py-2 mb-3">
-                  {msg}
-                </div>
+              {activeTab === "progress" && selected && (
+                <VendorProgressTab companyCode={selected.company_code} companyName={selected.company_name} />
               )}
-
-              {selected && (
-                <RecentRequests
-                  vendorId={selected.id}
-                  onReuse={(data) => {
-                    const next = reuseKey + 1;
-                    setReuseKey(next);
-                    setReuseSignal({ data, key: next });
-                  }}
-                />
-              )}
-
-              {selected && <WorkRequestForm vendor={selected} loginId={loginId} reuseSignal={reuseSignal} />}
             </>
           )}
         </div>
