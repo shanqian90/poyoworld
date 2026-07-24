@@ -329,13 +329,13 @@ export function buildPreviewHtml(data: EstimateData): string {
     ".estimate-wrap .brand{font-size:13px;text-align:center;margin-bottom:8px}" +
     ".estimate-wrap .title{font-size:26px;font-weight:800;text-align:center;margin-bottom:16px}" +
     ".estimate-wrap .meta-table{width:100%;border-collapse:collapse;font-size:12px}" +
-    ".estimate-wrap .meta-table th,.estimate-wrap .meta-table td{border:1px solid #000;padding:0;text-align:center}" +
+    ".estimate-wrap .meta-table th,.estimate-wrap .meta-table td{border:1px solid #000;padding:0;text-align:center;vertical-align:middle;height:38px}" +
     ".estimate-wrap .meta-table th{background:#efefef;font-weight:700}" +
     ".estimate-wrap .section-title{margin-top:14px;margin-bottom:6px;font-size:14px;font-weight:800}" +
     ".estimate-wrap table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}" +
-    ".estimate-wrap th,.estimate-wrap td{border:1px solid #000;padding:0;text-align:center}" +
+    ".estimate-wrap th,.estimate-wrap td{border:1px solid #000;padding:0;text-align:center;vertical-align:middle;height:38px}" +
     ".estimate-wrap th{background:#d8c6aa}.estimate-wrap .num{text-align:center}" +
-    ".estimate-wrap .vc{display:flex;align-items:center;justify-content:center;min-height:38px;padding:8px 6px;text-align:center}" +
+    ".estimate-wrap .vc{display:flex;align-items:center;justify-content:center;height:100%;min-height:38px;padding:8px 6px;text-align:center;box-sizing:border-box}" +
     ".estimate-wrap .money-krw{display:block;font-weight:700}" +
     ".estimate-wrap .money-cny{display:block;font-size:11px;color:#8a6d3b;margin-top:2px}" +
     ".estimate-wrap .cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}" +
