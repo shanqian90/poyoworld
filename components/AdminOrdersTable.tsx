@@ -62,10 +62,10 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
   { key: "product_name", label: "제품명", defaultWidth: 140 },
   { key: "option_text", label: "구매옵션", defaultWidth: 110 },
   { key: "review_type", label: "리뷰종류", defaultWidth: 90 },
-  { key: "review_url", label: "리뷰URL", defaultWidth: 90 },
+  { key: "review_url", label: "리뷰이미지", defaultWidth: 90 },
   { key: "manager", label: "예정", defaultWidth: 70 },
   { key: "real_manager", label: "실진행", defaultWidth: 70 },
-  { key: "order_image", label: "구매URL", defaultWidth: 90 },
+  { key: "order_image", label: "구매이미지", defaultWidth: 90 },
   { key: "order_no", label: "주문번호", defaultWidth: 130 },
   { key: "buyer", label: "구매자", defaultWidth: 80 },
   { key: "receiver", label: "수취인", defaultWidth: 80 },
@@ -81,7 +81,6 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
   { key: "company_paid", label: "업체입금", kind: "toggle", defaultWidth: 70 },
   { key: "delivery", label: "택배대행", defaultWidth: 90 },
   { key: "tracking", label: "운송장번호", defaultWidth: 110 },
-  { key: "remark", label: "비고", defaultWidth: 130 },
 ];
 
 export default function AdminOrdersTable({
