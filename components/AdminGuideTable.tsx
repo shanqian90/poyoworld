@@ -6,7 +6,7 @@ import { GuideProduct } from "@/lib/types";
 import KakaoGuideModal from "@/components/KakaoGuideModal";
 
 type Field = keyof GuideProduct;
-type Kind = "text" | "toggle" | "checked_at";
+type Kind = "text" | "toggle";
 
 const LINK_FIELDS = new Set<Field>(["product_url", "image_url"]);
 
@@ -29,15 +29,8 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
   { key: "review_type", label: "리뷰가이드", defaultWidth: 140 },
   { key: "delivery", label: "배송형태", defaultWidth: 90 },
   { key: "image_url", label: "이미지링크", defaultWidth: 90 },
-  { key: "deadline", label: "마감", defaultWidth: 90 },
-  { key: "checked_at", label: "시간기록", kind: "checked_at", defaultWidth: 130 },
 ];
 
-function fmtChecked(v: string | null) {
-  if (!v) return "미확인";
-  const d = new Date(v);
-  return d.toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
 
 export default function AdminGuideTable({
   rows: initialRows,
@@ -57,21 +50,126 @@ export default function AdminGuideTable({
     Object.fromEntries(COLUMNS.map((c) => [c.key, c.defaultWidth]))
   );
   const [hoverCell, setHoverCell] = useState<{ id: string; field: Field } | null>(null);
+  const [dragAnchor, setDragAnchor] = useState<{ id: string; field: Field } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const cellKey = (id: string, field: Field) => `${id}:${field}`;
+  const colKeys = COLUMNS.map((c) => c.key);
+  const clearableField = (f: Field) => {
+    const col = COLUMNS.find((c) => c.key === f);
+    return !!col && col.kind !== "toggle" && !LINK_FIELDS.has(f);
+  };
+
+  function startDrag(row: GuideProduct, field: Field) {
+    setDragAnchor({ id: row.id, field });
+    setIsDragging(true);
+    setSelectedCells(new Set([cellKey(row.id, field)]));
+  }
+
+  function dragOver(row: GuideProduct, field: Field) {
+    if (!isDragging || !dragAnchor) return;
+    const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
+    const rowB = filtered.findIndex((r) => r.id === row.id);
+    const colA = colKeys.indexOf(dragAnchor.field);
+    const colB = colKeys.indexOf(field);
+    const [rowLo, rowHi] = rowA <= rowB ? [rowA, rowB] : [rowB, rowA];
+    const [colLo, colHi] = colA <= colB ? [colA, colB] : [colB, colA];
+    const next = new Set<string>();
+    for (let ri = rowLo; ri <= rowHi; ri++) {
+      for (let ci = colLo; ci <= colHi; ci++) next.add(cellKey(filtered[ri].id, colKeys[ci]));
+    }
+    setSelectedCells(next);
+  }
+
+  useEffect(() => {
+    function onUp() {
+      setIsDragging(false);
+    }
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, []);
+
+  function selectionBounds() {
+    if (!selectedCells.size) return null;
+    let rowLo = Infinity, rowHi = -Infinity, colLo = Infinity, colHi = -Infinity;
+    selectedCells.forEach((key) => {
+      const idx = key.lastIndexOf(":");
+      const id = key.slice(0, idx);
+      const field = key.slice(idx + 1) as Field;
+      const ri = filtered.findIndex((r) => r.id === id);
+      const ci = colKeys.indexOf(field);
+      if (ri < rowLo) rowLo = ri;
+      if (ri > rowHi) rowHi = ri;
+      if (ci < colLo) colLo = ci;
+      if (ci > colHi) colHi = ci;
+    });
+    return { rowLo, rowHi, colLo, colHi };
+  }
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (editing) return;
-      if ((e.key !== "Delete" && e.key !== "Backspace") || !hoverCell) return;
       const target = e.target as HTMLElement;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      const inInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+
+      if ((e.key === "c" || e.key === "C") && (e.ctrlKey || e.metaKey) && !inInput && selectedCells.size > 0) {
+        const bounds = selectionBounds();
+        if (!bounds) return;
+        const lines: string[] = [];
+        for (let ri = bounds.rowLo; ri <= bounds.rowHi; ri++) {
+          const cells: string[] = [];
+          for (let ci = bounds.colLo; ci <= bounds.colHi; ci++) {
+            const v = filtered[ri][colKeys[ci]];
+            cells.push(v == null ? "" : String(v));
+          }
+          lines.push(cells.join("\t"));
+        }
+        navigator.clipboard.writeText(lines.join("\n"));
+        return;
+      }
+
+      if ((e.key === "v" || e.key === "V") && (e.ctrlKey || e.metaKey) && !inInput && dragAnchor) {
+        e.preventDefault();
+        navigator.clipboard.readText().then((text) => {
+          const grid = text.replace(/\r/g, "").split("\n").map((line) => line.split("\t"));
+          const startRow = filtered.findIndex((r) => r.id === dragAnchor.id);
+          const startCol = colKeys.indexOf(dragAnchor.field);
+          if (startRow === -1 || startCol === -1) return;
+          for (let ri = 0; ri < grid.length; ri++) {
+            const targetRow = filtered[startRow + ri];
+            if (!targetRow) break;
+            for (let ci = 0; ci < grid[ri].length; ci++) {
+              const field = colKeys[startCol + ci];
+              if (!field || !clearableField(field)) continue;
+              const raw = grid[ri][ci].trim();
+              const value = raw === "" ? null : field === "price" ? Number(raw) : raw;
+              saveField(targetRow.id, field, value);
+            }
+          }
+        });
+        return;
+      }
+
+      if (editing) return;
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (inInput) return;
+      if (selectedCells.size > 1) {
+        selectedCells.forEach((key) => {
+          const idx = key.lastIndexOf(":");
+          const id = key.slice(0, idx);
+          const field = key.slice(idx + 1) as Field;
+          if (clearableField(field)) saveField(id, field, null);
+        });
+        return;
+      }
+      if (!hoverCell) return;
       const col = COLUMNS.find((c) => c.key === hoverCell.field);
-      if (!col || col.kind === "toggle" || col.kind === "checked_at" || LINK_FIELDS.has(hoverCell.field)) return;
+      if (!col || col.kind === "toggle" || LINK_FIELDS.has(hoverCell.field)) return;
       saveField(hoverCell.id, hoverCell.field, null);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hoverCell, editing]);
+  }, [hoverCell, editing, selectedCells, dragAnchor]);
 
   function startResize(e: ReactMouseEvent, key: Field) {
     e.preventDefault();
@@ -153,10 +251,6 @@ export default function AdminGuideTable({
 
   async function toggleBool(row: GuideProduct, field: "active") {
     await saveField(row.id, field, !row[field]);
-  }
-
-  async function toggleChecked(row: GuideProduct) {
-    await saveField(row.id, "checked_at", row.checked_at ? null : new Date().toISOString());
   }
 
   async function addRow() {
@@ -276,30 +370,21 @@ export default function AdminGuideTable({
                       </td>
                     );
                   }
-                  if (c.kind === "checked_at") {
-                    return (
-                      <td key={c.key} className="px-2 py-1.5 border-r border-neutral-200 text-center overflow-hidden">
-                        <button
-                          className={`px-2 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${
-                            r.checked_at ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
-                          }`}
-                          onClick={() => toggleChecked(r)}
-                          disabled={savingId === r.id}
-                        >
-                          {fmtChecked(r.checked_at)}
-                        </button>
-                      </td>
-                    );
-                  }
                   const isEditing = editing?.id === r.id && editing.field === c.key;
                   const val = r[c.key];
                   const isLink = LINK_FIELDS.has(c.key);
+                  const isSelected = selectedCells.has(cellKey(r.id, c.key));
                   return (
                     <td
                       key={c.key}
                       className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis select-none"
+                      style={{ boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined }}
                       onClick={() => !isEditing && startEdit(r, c.key)}
-                      onMouseEnter={() => setHoverCell({ id: r.id, field: c.key })}
+                      onMouseDown={() => startDrag(r, c.key)}
+                      onMouseEnter={() => {
+                        setHoverCell({ id: r.id, field: c.key });
+                        dragOver(r, c.key);
+                      }}
                       onMouseLeave={() => setHoverCell((h) => (h && h.id === r.id && h.field === c.key ? null : h))}
                       title={typeof val === "string" ? val : undefined}
                     >

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getKakaoId, setKakaoId } from "@/lib/session";
+import { sanitizePasswordInput } from "@/lib/password";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -74,12 +75,12 @@ export default function LoginPage() {
           onKeyDown={(e) => e.key === "Enter" && doLogin()}
         />
 
-        <label className="block text-sm font-bold text-rose-600 mb-1">🔒 비밀번호 (4자 이상)</label>
+        <label className="block text-sm font-bold text-rose-600 mb-1">🔒 비밀번호 (영문/숫자/특수문자, 4자 이상)</label>
         <input
           type="password"
           className="w-full border border-rose-200 rounded-xl px-3 py-3 text-sm outline-none focus:border-rose-400"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => setPassword(sanitizePasswordInput(e.target.value))}
           onKeyDown={(e) => e.key === "Enter" && doLogin()}
         />
 

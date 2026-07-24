@@ -68,6 +68,15 @@ export function computeKFlags(
       continue;
     }
 
+    // 상품 중복: 날짜 제한 없이 업체코드+업체명+제품명+예정(K) 기준
+    const productDupCount = rows.filter(
+      (o) => o.company_code === r.company_code && o.company_name === r.company_name && o.product_name === r.product_name && (o.manager || "").trim() === k
+    ).length;
+    if (productDupCount > 1) {
+      result.set(r.id, "product_dup");
+      continue;
+    }
+
     const day = mmddToDayNum(r.date_mmdd);
     const within21 = (o: FlagRow) => {
       if (day == null) return false;
@@ -75,22 +84,6 @@ export function computeKFlags(
       if (od == null) return false;
       return Math.abs(od - day) <= 21;
     };
-
-    const safeKMatch = rows.filter(
-      (o) => o.company_code === r.company_code && o.product_name === r.product_name && (o.manager || "").trim() === k && within21(o)
-    ).length;
-    const safeLMatch = rows.filter(
-      (o) => o.company_code === r.company_code && o.product_name === r.product_name && (o.real_manager || "").trim() === k && within21(o)
-    ).length;
-    if (!blacklistNames.has(k) && safeKMatch === 1 && safeLMatch === 0) {
-      result.set(r.id, "safe");
-      continue;
-    }
-
-    if (whitelistNames.has(k)) {
-      result.set(r.id, "whitelist");
-      continue;
-    }
 
     const companyDupCount = rows.filter(
       (o) => o.company_code === r.company_code && o.company_name === r.company_name && (o.manager || "").trim() === k && within21(o)
@@ -100,12 +93,19 @@ export function computeKFlags(
       continue;
     }
 
-    // 상품 중복: 날짜 제한 없이 업체코드+업체명+제품명+예정(K) 기준
-    const productDupCount = rows.filter(
-      (o) => o.company_code === r.company_code && o.company_name === r.company_name && o.product_name === r.product_name && (o.manager || "").trim() === k
+    if (whitelistNames.has(k)) {
+      result.set(r.id, "whitelist");
+      continue;
+    }
+
+    const safeKMatch = rows.filter(
+      (o) => o.company_code === r.company_code && o.product_name === r.product_name && (o.manager || "").trim() === k && within21(o)
     ).length;
-    if (productDupCount > 1) {
-      result.set(r.id, "product_dup");
+    const safeLMatch = rows.filter(
+      (o) => o.company_code === r.company_code && o.product_name === r.product_name && (o.real_manager || "").trim() === k && within21(o)
+    ).length;
+    if (safeKMatch === 1 && safeLMatch === 0) {
+      result.set(r.id, "safe");
     }
   }
 

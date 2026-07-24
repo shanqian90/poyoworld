@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getVendorLoginId, setVendorLoginId } from "@/lib/vendorSession";
 import { formatPhoneLive } from "@/lib/phone";
+import { sanitizePasswordInput } from "@/lib/password";
 import TrustCounters from "@/components/TrustCounters";
 
 export default function VendorLoginPage() {
@@ -93,12 +94,12 @@ export default function VendorLoginPage() {
           onChange={(e) => setLoginId(formatPhoneLive(e.target.value))}
           onKeyDown={(e) => e.key === "Enter" && doLogin()}
         />
-        <label className="block text-sm font-bold text-emerald-700 mb-1">비밀번호 (4자 이상)</label>
+        <label className="block text-sm font-bold text-emerald-700 mb-1">비밀번호 (영문/숫자/특수문자, 4자 이상)</label>
         <input
           type="password"
           className="w-full border border-emerald-200 rounded-xl px-3 py-3 text-sm outline-none focus:border-emerald-500"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => setPassword(sanitizePasswordInput(e.target.value))}
           onKeyDown={(e) => e.key === "Enter" && doLogin()}
         />
 

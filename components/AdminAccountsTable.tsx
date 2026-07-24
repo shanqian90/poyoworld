@@ -38,19 +38,118 @@ export default function AdminAccountsTable({
   const [widths, setWidths] = useState<Record<string, number>>(() =>
     Object.fromEntries(COLUMNS.map((c) => [c.key, c.defaultWidth]))
   );
+  const [dragAnchor, setDragAnchor] = useState<{ id: string; field: Field } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const cellKey = (id: string, field: Field) => `${id}:${field}`;
+  const colKeys = COLUMNS.map((c) => c.key);
+
+  function startDrag(row: Account, field: Field) {
+    setDragAnchor({ id: row.id, field });
+    setIsDragging(true);
+    setSelectedCells(new Set([cellKey(row.id, field)]));
+  }
+
+  function dragOver(row: Account, field: Field) {
+    if (!isDragging || !dragAnchor) return;
+    const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
+    const rowB = filtered.findIndex((r) => r.id === row.id);
+    const colA = colKeys.indexOf(dragAnchor.field);
+    const colB = colKeys.indexOf(field);
+    const [rowLo, rowHi] = rowA <= rowB ? [rowA, rowB] : [rowB, rowA];
+    const [colLo, colHi] = colA <= colB ? [colA, colB] : [colB, colA];
+    const next = new Set<string>();
+    for (let ri = rowLo; ri <= rowHi; ri++) {
+      for (let ci = colLo; ci <= colHi; ci++) next.add(cellKey(filtered[ri].id, colKeys[ci]));
+    }
+    setSelectedCells(next);
+  }
+
+  useEffect(() => {
+    function onUp() {
+      setIsDragging(false);
+    }
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, []);
+
+  function selectionBounds() {
+    if (!selectedCells.size) return null;
+    let rowLo = Infinity, rowHi = -Infinity, colLo = Infinity, colHi = -Infinity;
+    selectedCells.forEach((key) => {
+      const idx = key.lastIndexOf(":");
+      const id = key.slice(0, idx);
+      const field = key.slice(idx + 1) as Field;
+      const ri = filtered.findIndex((r) => r.id === id);
+      const ci = colKeys.indexOf(field);
+      if (ri < rowLo) rowLo = ri;
+      if (ri > rowHi) rowHi = ri;
+      if (ci < colLo) colLo = ci;
+      if (ci > colHi) colHi = ci;
+    });
+    return { rowLo, rowHi, colLo, colHi };
+  }
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (editing) return;
-      if ((e.key !== "Delete" && e.key !== "Backspace") || !hoverCell) return;
       const target = e.target as HTMLElement;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      const inInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+
+      if ((e.key === "c" || e.key === "C") && (e.ctrlKey || e.metaKey) && !inInput && selectedCells.size > 0) {
+        const bounds = selectionBounds();
+        if (!bounds) return;
+        const lines: string[] = [];
+        for (let ri = bounds.rowLo; ri <= bounds.rowHi; ri++) {
+          const cells: string[] = [];
+          for (let ci = bounds.colLo; ci <= bounds.colHi; ci++) {
+            const v = filtered[ri][colKeys[ci]];
+            cells.push(v == null ? "" : String(v));
+          }
+          lines.push(cells.join("\t"));
+        }
+        navigator.clipboard.writeText(lines.join("\n"));
+        return;
+      }
+
+      if ((e.key === "v" || e.key === "V") && (e.ctrlKey || e.metaKey) && !inInput && dragAnchor) {
+        e.preventDefault();
+        navigator.clipboard.readText().then((text) => {
+          const grid = text.replace(/\r/g, "").split("\n").map((line) => line.split("\t"));
+          const startRow = filtered.findIndex((r) => r.id === dragAnchor.id);
+          const startCol = colKeys.indexOf(dragAnchor.field);
+          if (startRow === -1 || startCol === -1) return;
+          for (let ri = 0; ri < grid.length; ri++) {
+            const targetRow = filtered[startRow + ri];
+            if (!targetRow) break;
+            for (let ci = 0; ci < grid[ri].length; ci++) {
+              const field = colKeys[startCol + ci];
+              if (!field) continue;
+              saveField(targetRow.id, field, grid[ri][ci].trim());
+            }
+          }
+        });
+        return;
+      }
+
+      if (editing) return;
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (inInput) return;
+      if (selectedCells.size > 1) {
+        selectedCells.forEach((key) => {
+          const idx = key.lastIndexOf(":");
+          const id = key.slice(0, idx);
+          const field = key.slice(idx + 1) as Field;
+          saveField(id, field, "");
+        });
+        return;
+      }
+      if (!hoverCell) return;
       saveField(hoverCell.id, hoverCell.field, "");
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hoverCell, editing]);
+  }, [hoverCell, editing, selectedCells, dragAnchor]);
 
   function startResize(e: ReactMouseEvent, key: Field) {
     e.preventDefault();
@@ -243,12 +342,18 @@ export default function AdminAccountsTable({
                 {COLUMNS.map((c) => {
                   const isEditing = editing?.id === r.id && editing.field === c.key;
                   const val = r[c.key];
+                  const isSelected = selectedCells.has(cellKey(r.id, c.key));
                   return (
                     <td
                       key={c.key}
                       className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis select-none"
+                      style={{ boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined }}
                       onClick={() => !isEditing && startEdit(r, c.key)}
-                      onMouseEnter={() => setHoverCell({ id: r.id, field: c.key })}
+                      onMouseDown={() => startDrag(r, c.key)}
+                      onMouseEnter={() => {
+                        setHoverCell({ id: r.id, field: c.key });
+                        dragOver(r, c.key);
+                      }}
                       onMouseLeave={() => setHoverCell((h) => (h && h.id === r.id && h.field === c.key ? null : h))}
                       title={val || undefined}
                     >
