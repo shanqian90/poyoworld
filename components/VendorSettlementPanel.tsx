@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 type VendorGroup = {
@@ -9,37 +9,6 @@ type VendorGroup = {
   lastRequestDate: string | null;
 };
 type VendorWindowFilter = "전체" | "30일" | "7일" | "직접";
-type RequestRow = {
-  id: number;
-  start_date: string;
-  receipt_no: string;
-  company_code: string | null;
-  company_name: string;
-  issue_date: string | null;
-  deposit_amount: number | null;
-  memo: string | null;
-  tax_bill: boolean;
-  status: string;
-  keyword: string | null;
-  total_count: number | null;
-  image_url: string | null;
-  vendors: { company_code: string | null } | { company_code: string | null }[] | null;
-};
-
-function requestDateFromReceipt(receiptNo: string): string {
-  const digits = String(receiptNo || "").replace(/\D/g, "");
-  if (digits.length < 8) return "-";
-  const yy = digits.slice(2, 4);
-  const mm = parseInt(digits.slice(4, 6), 10);
-  const dd = parseInt(digits.slice(6, 8), 10);
-  return `${yy}/${mm}/${dd}`;
-}
-
-function companyCode(r: RequestRow): string {
-  if (r.company_code) return r.company_code;
-  const v = Array.isArray(r.vendors) ? r.vendors[0] : r.vendors;
-  return v?.company_code || "";
-}
 type PaymentRow = {
   id: string;
   amount: number;
@@ -59,9 +28,8 @@ type ChargeRow = {
 };
 type Company = { code: string | null; name: string };
 
-type StatusFilter = "전체" | "접수" | "대기" | "진행중" | "취소";
 type RangeFilter = "전체" | "30일" | "7일";
-type SortKey = "reqDate" | "issueDate" | "company" | "keyword" | "totalCount" | "deposit";
+type SortKey = "reqDate" | "company" | "keyword" | "deposit";
 
 function todayISO() {
   const d = new Date();
@@ -102,7 +70,6 @@ export default function VendorSettlementPanel() {
   const [vendors, setVendors] = useState<VendorGroup[]>([]);
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<VendorGroup | null>(null);
-  const [requests, setRequests] = useState<RequestRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [charges, setCharges] = useState<ChargeRow[]>([]);
   const [totals, setTotals] = useState({ totalRequested: 0, totalPaid: 0, balance: 0 });
@@ -118,7 +85,6 @@ export default function VendorSettlementPanel() {
   const [paymentCompanyKey, setPaymentCompanyKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("전체");
   const [rangeFilter, setRangeFilter] = useState<RangeFilter>("전체");
   const [vendorWindow, setVendorWindow] = useState<VendorWindowFilter>("전체");
   const [vendorCustomDate, setVendorCustomDate] = useState(todayISO());
@@ -195,7 +161,6 @@ export default function VendorSettlementPanel() {
         setMsg(data.message || "조회 실패");
         return;
       }
-      setRequests(data.requests || []);
       setPayments(data.payments || []);
       setCharges(data.charges || []);
       setTotals({ totalRequested: data.totalRequested, totalPaid: data.totalPaid, balance: data.balance });
@@ -430,177 +395,27 @@ export default function VendorSettlementPanel() {
     }
   }
 
-  const filteredRequests = useMemo(() => {
-    return requests.filter(
-      (r) => (statusFilter === "전체" || r.status === statusFilter) && withinRange(r.start_date, rangeFilter)
-    );
-  }, [requests, statusFilter, rangeFilter]);
-
   const filteredCharges = useMemo(() => {
-    if (statusFilter !== "전체") return [];
     return charges.filter((c) => withinRange(c.charge_date, rangeFilter));
-  }, [charges, statusFilter, rangeFilter]);
+  }, [charges, rangeFilter]);
 
-  type DisplayRow = {
-    key: string;
-    kind: "request" | "charge";
-    reqDateSort: string;
-    reqDateLabel: string;
-    issueDateNode: ReactNode;
-    companySort: string;
-    companyLabel: ReactNode;
-    keyword: string;
-    keywordNode: ReactNode;
-    totalCount: string;
-    amount: number;
-    amountNode: ReactNode;
-    imageNode: ReactNode;
-    manageNode: ReactNode;
-  };
-
-  const combinedRows: DisplayRow[] = useMemo(() => {
-    const reqRows: DisplayRow[] = filteredRequests.map((r) => ({
-      key: `req-${r.id}`,
-      kind: "request",
-      reqDateSort: r.receipt_no || "",
-      reqDateLabel: requestDateFromReceipt(r.receipt_no),
-      issueDateNode: r.tax_bill ? (
-        <input
-          type="date"
-          className="border border-neutral-300 rounded px-1 py-1 text-xs w-full"
-          value={r.issue_date || ""}
-          onChange={(e) => updateField(r.id, "issue_date", e.target.value)}
-        />
-      ) : (
-        <span className="text-neutral-400">미요청</span>
-      ),
-      companySort: `${companyCode(r)}${r.company_name}`,
-      companyLabel: `${companyCode(r)} ${r.company_name}`,
-      keyword: r.keyword || "-",
-      keywordNode: r.keyword || "-",
-      totalCount: r.total_count != null ? String(r.total_count) : "-",
-      amount: r.deposit_amount || 0,
-      amountNode: (
-        <input
-          type="number"
-          className="border border-neutral-300 rounded px-1 py-1 text-xs w-24 text-right"
-          value={r.deposit_amount ?? 0}
-          onChange={(e) => setLocalDeposit(r.id, Number(e.target.value) || 0)}
-          onBlur={(e) => updateField(r.id, "deposit_amount", Number(e.target.value) || 0)}
-        />
-      ),
-      imageNode: r.image_url ? (
-        <a href={r.image_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-bold whitespace-nowrap">
-          견적서확인하기
-        </a>
-      ) : (
-        <span className="text-neutral-300">-</span>
-      ),
-      manageNode: null,
-    }));
-
-    const chargeRows: DisplayRow[] = filteredCharges.map((c) => {
-      const isEditing = editingChargeId === c.id;
-      return {
-        key: `charge-${c.id}`,
-        kind: "charge",
-        reqDateSort: c.charge_date,
-        reqDateLabel: shortDate(c.charge_date),
-        issueDateNode: <span className="text-neutral-300">-</span>,
-        companySort: `${c.company_code || ""}${c.company_name}`,
-        companyLabel: isEditing ? (
-          <CompanySelect
-            companies={selected?.companies || []}
-            value={editChargeCompanyKey}
-            onChange={setEditChargeCompanyKey}
-          />
-        ) : (
-          `${c.company_code || ""} ${c.company_name}`
-        ),
-        keyword: c.product_name || "",
-        keywordNode: isEditing ? (
-          <input
-            className="border border-neutral-300 rounded px-1 py-1 text-xs w-full"
-            placeholder="제품명"
-            value={editChargeProductName}
-            onChange={(e) => setEditChargeProductName(e.target.value)}
-          />
-        ) : (
-          c.product_name || <span className="text-neutral-400">수동 등록</span>
-        ),
-        totalCount: "-",
-        amount: c.amount,
-        amountNode: isEditing ? (
-          <input
-            type="number"
-            className="border border-neutral-300 rounded px-1 py-1 text-xs w-24 text-right"
-            value={editChargeAmount}
-            onChange={(e) => setEditChargeAmount(e.target.value)}
-          />
-        ) : (
-          `₩${c.amount.toLocaleString("ko-KR")}`
-        ),
-        imageNode: <span className="text-neutral-300">-</span>,
-        manageNode: isEditing ? (
-          <span className="whitespace-nowrap">
-            <button className="text-emerald-600 font-bold disabled:opacity-50" onClick={saveEditCharge} disabled={chargeBusy}>
-              저장
-            </button>
-            <button className="text-neutral-400 font-bold ml-1" onClick={() => setEditingChargeId(null)}>
-              취소
-            </button>
-          </span>
-        ) : (
-          <span className="whitespace-nowrap">
-            <button className="text-blue-500 hover:text-blue-700 font-bold" onClick={() => startEditCharge(c)}>
-              수정
-            </button>
-            <button className="text-neutral-400 hover:text-rose-600 font-bold ml-1" onClick={() => deleteCharge(c.id)}>
-              ✕
-            </button>
-          </span>
-        ),
-      };
-    });
-
-    return [...reqRows, ...chargeRows];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    filteredRequests,
-    filteredCharges,
-    editingChargeId,
-    editChargeCompanyKey,
-    editChargeProductName,
-    editChargeAmount,
-    chargeBusy,
-    selected,
-  ]);
-
-  const sortedRows = useMemo(() => {
+  const sortedCharges = useMemo(() => {
     const dir = sortDir === "asc" ? 1 : -1;
-    return [...combinedRows].sort((a, b) => {
+    return [...filteredCharges].sort((a, b) => {
       let av: string | number = "";
       let bv: string | number = "";
       switch (sortKey) {
         case "reqDate":
-          av = a.reqDateSort;
-          bv = b.reqDateSort;
-          break;
-        case "issueDate":
-          av = a.kind === "request" ? a.reqDateSort : "";
-          bv = b.kind === "request" ? b.reqDateSort : "";
+          av = a.charge_date;
+          bv = b.charge_date;
           break;
         case "company":
-          av = a.companySort;
-          bv = b.companySort;
+          av = `${a.company_code || ""}${a.company_name}`;
+          bv = `${b.company_code || ""}${b.company_name}`;
           break;
         case "keyword":
-          av = a.keyword;
-          bv = b.keyword;
-          break;
-        case "totalCount":
-          av = Number(a.totalCount) || 0;
-          bv = Number(b.totalCount) || 0;
+          av = a.product_name || "";
+          bv = b.product_name || "";
           break;
         case "deposit":
           av = a.amount;
@@ -610,7 +425,7 @@ export default function VendorSettlementPanel() {
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
       return String(av).localeCompare(String(bv), "ko") * dir;
     });
-  }, [combinedRows, sortKey, sortDir]);
+  }, [filteredCharges, sortKey, sortDir]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -623,33 +438,6 @@ export default function VendorSettlementPanel() {
   const filteredPayments = useMemo(() => {
     return payments.filter((p) => withinRange(p.paid_date, rangeFilter));
   }, [payments, rangeFilter]);
-
-  function setLocalDeposit(id: number, value: number) {
-    setRequests((prev) => {
-      const next = prev.map((r) => (r.id === id ? { ...r, deposit_amount: value } : r));
-      setTotals((t) => {
-        const nextTotalRequested =
-          next.reduce((s, r) => s + (r.deposit_amount || 0), 0) + charges.reduce((s, c) => s + (c.amount || 0), 0);
-        return { ...t, totalRequested: nextTotalRequested, balance: t.totalPaid - nextTotalRequested };
-      });
-      return next;
-    });
-  }
-
-  async function updateField(id: number, field: "issue_date" | "deposit_amount", value: string | number) {
-    if (field === "deposit_amount") setLocalDeposit(id, Number(value) || 0);
-    else setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, issue_date: String(value) } : r)));
-    const res = await fetch(`/api/admin/requests/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ field, value }),
-    });
-    const data = await res.json();
-    if (!data.ok) {
-      alert(data.message || "저장 실패");
-      if (selected) selectVendor(selected);
-    }
-  }
 
   return (
     <div className="flex flex-col gap-3 h-full">
@@ -782,19 +570,7 @@ export default function VendorSettlementPanel() {
 
               {!loading && (
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="font-bold text-neutral-500">진행상태</span>
-                  {(["전체", "접수", "대기", "진행중", "취소"] as StatusFilter[]).map((s) => (
-                    <button
-                      key={s}
-                      className={`rounded-lg px-2.5 py-1 font-bold border ${
-                        statusFilter === s ? "bg-neutral-800 text-white border-neutral-800" : "bg-white text-neutral-600 border-neutral-300"
-                      }`}
-                      onClick={() => setStatusFilter(s)}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                  <span className="font-bold text-neutral-500 ml-3">기간</span>
+                  <span className="font-bold text-neutral-500">기간</span>
                   {(["전체", "30일", "7일"] as RangeFilter[]).map((r) => (
                     <button
                       key={r}
@@ -813,7 +589,7 @@ export default function VendorSettlementPanel() {
                 <div className="grid grid-cols-2 gap-3 flex-1 min-h-0">
                   <div className="border border-neutral-300 rounded-xl overflow-auto">
                     <div className="sticky top-0 bg-neutral-800 text-white text-xs font-bold px-3 py-2 flex items-center justify-between">
-                      <span>📝 견적서 발행 이력</span>
+                      <span>💵 받을 금액 (수동입력)</span>
                       <button
                         className="bg-white/20 hover:bg-white/30 rounded px-2 py-0.5 text-xs"
                         onClick={() => setAddingCharge(true)}
@@ -824,29 +600,99 @@ export default function VendorSettlementPanel() {
                     <table className="w-full text-xs border-collapse">
                       <thead className="bg-neutral-100">
                         <tr>
-                          <SortableTh label="요청날짜" sortKey="reqDate" active={sortKey} dir={sortDir} onSort={toggleSort} />
-                          <SortableTh label="세금계산서 발행일" sortKey="issueDate" active={sortKey} dir={sortDir} onSort={toggleSort} />
+                          <SortableTh label="등록일" sortKey="reqDate" active={sortKey} dir={sortDir} onSort={toggleSort} />
                           <SortableTh label="업체" sortKey="company" active={sortKey} dir={sortDir} onSort={toggleSort} />
                           <SortableTh label="제품명" sortKey="keyword" active={sortKey} dir={sortDir} onSort={toggleSort} />
-                          <SortableTh label="총 수량" sortKey="totalCount" active={sortKey} dir={sortDir} onSort={toggleSort} />
-                          <SortableTh label="요청금액" sortKey="deposit" active={sortKey} dir={sortDir} onSort={toggleSort} />
-                          <th className="px-2 py-1.5 text-center">견적서</th>
+                          <SortableTh label="금액" sortKey="deposit" active={sortKey} dir={sortDir} onSort={toggleSort} />
                           <th className="px-2 py-1.5 text-center">관리</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedRows.map((r) => (
-                          <tr key={r.key} className={`border-b border-neutral-100 ${r.kind === "charge" ? "bg-amber-50/40" : ""}`}>
-                            <td className="px-2 py-1.5 text-center whitespace-nowrap">{r.reqDateLabel}</td>
-                            <td className="px-1 py-1 text-center">{r.issueDateNode}</td>
-                            <td className="px-2 py-1.5 text-center whitespace-nowrap">{r.companyLabel}</td>
-                            <td className="px-2 py-1.5 text-center">{r.keywordNode}</td>
-                            <td className="px-2 py-1.5 text-center">{r.totalCount}</td>
-                            <td className="px-1 py-1 text-center">{r.amountNode}</td>
-                            <td className="px-2 py-1.5 text-center">{r.imageNode}</td>
-                            <td className="px-1 py-1 text-center">{r.manageNode}</td>
-                          </tr>
-                        ))}
+                        {sortedCharges.map((c) => {
+                          const isEditing = editingChargeId === c.id;
+                          return (
+                            <tr key={c.id} className="border-b border-neutral-100">
+                              <td className="px-1 py-1 text-center whitespace-nowrap">
+                                {isEditing ? (
+                                  <input
+                                    type="date"
+                                    className="border border-neutral-300 rounded px-1 py-1 text-xs w-full"
+                                    value={editChargeDate}
+                                    onChange={(e) => setEditChargeDate(e.target.value)}
+                                  />
+                                ) : (
+                                  shortDate(c.charge_date)
+                                )}
+                              </td>
+                              <td className="px-1 py-1 text-center whitespace-nowrap">
+                                {isEditing ? (
+                                  <CompanySelect
+                                    companies={selected?.companies || []}
+                                    value={editChargeCompanyKey}
+                                    onChange={setEditChargeCompanyKey}
+                                  />
+                                ) : (
+                                  `${c.company_code || ""} ${c.company_name}`
+                                )}
+                              </td>
+                              <td className="px-1 py-1 text-center">
+                                {isEditing ? (
+                                  <input
+                                    className="border border-neutral-300 rounded px-1 py-1 text-xs w-full"
+                                    placeholder="제품명"
+                                    value={editChargeProductName}
+                                    onChange={(e) => setEditChargeProductName(e.target.value)}
+                                  />
+                                ) : (
+                                  c.product_name || <span className="text-neutral-400">-</span>
+                                )}
+                              </td>
+                              <td className="px-1 py-1 text-center">
+                                {isEditing ? (
+                                  <input
+                                    type="number"
+                                    className="border border-neutral-300 rounded px-1 py-1 text-xs w-24 text-right"
+                                    value={editChargeAmount}
+                                    onChange={(e) => setEditChargeAmount(e.target.value)}
+                                  />
+                                ) : (
+                                  `₩${c.amount.toLocaleString("ko-KR")}`
+                                )}
+                              </td>
+                              <td className="px-1 py-1 text-center whitespace-nowrap">
+                                {isEditing ? (
+                                  <span className="whitespace-nowrap">
+                                    <button
+                                      className="text-emerald-600 font-bold disabled:opacity-50"
+                                      onClick={saveEditCharge}
+                                      disabled={chargeBusy}
+                                    >
+                                      저장
+                                    </button>
+                                    <button className="text-neutral-400 font-bold ml-1" onClick={() => setEditingChargeId(null)}>
+                                      취소
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <span className="whitespace-nowrap">
+                                    <button
+                                      className="text-blue-500 hover:text-blue-700 font-bold"
+                                      onClick={() => startEditCharge(c)}
+                                    >
+                                      수정
+                                    </button>
+                                    <button
+                                      className="text-neutral-400 hover:text-rose-600 font-bold ml-1"
+                                      onClick={() => deleteCharge(c.id)}
+                                    >
+                                      ✕
+                                    </button>
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                         {addingCharge && (
                           <tr className="border-b border-neutral-100 bg-sky-50/60">
                             <td className="px-1 py-1 text-center">
@@ -857,7 +703,6 @@ export default function VendorSettlementPanel() {
                                 onChange={(e) => setChargeDate(e.target.value)}
                               />
                             </td>
-                            <td className="px-2 py-1.5 text-center text-neutral-300">-</td>
                             <td className="px-1 py-1 text-center">
                               <CompanySelect companies={selected.companies} value={chargeCompanyKey} onChange={setChargeCompanyKey} />
                             </td>
@@ -869,7 +714,6 @@ export default function VendorSettlementPanel() {
                                 onChange={(e) => setChargeProductName(e.target.value)}
                               />
                             </td>
-                            <td className="px-2 py-1.5 text-center text-neutral-300">-</td>
                             <td className="px-1 py-1 text-center">
                               <input
                                 type="number"
@@ -879,7 +723,6 @@ export default function VendorSettlementPanel() {
                                 onChange={(e) => setChargeAmount(e.target.value)}
                               />
                             </td>
-                            <td className="px-2 py-1.5 text-center text-neutral-300">-</td>
                             <td className="px-1 py-1 text-center whitespace-nowrap">
                               <button className="text-emerald-600 font-bold disabled:opacity-50" onClick={addCharge} disabled={chargeBusy}>
                                 저장
@@ -901,15 +744,15 @@ export default function VendorSettlementPanel() {
                         )}
                         {addingCharge && chargeMsg && (
                           <tr>
-                            <td colSpan={8} className="text-center text-rose-500 text-[11px] py-1">
+                            <td colSpan={5} className="text-center text-rose-500 text-[11px] py-1">
                               {chargeMsg}
                             </td>
                           </tr>
                         )}
-                        {!sortedRows.length && !addingCharge && (
+                        {!sortedCharges.length && !addingCharge && (
                           <tr>
-                            <td colSpan={8} className="text-center text-neutral-400 py-4">
-                              발행 이력이 없습니다
+                            <td colSpan={5} className="text-center text-neutral-400 py-4">
+                              등록된 내역이 없습니다
                             </td>
                           </tr>
                         )}

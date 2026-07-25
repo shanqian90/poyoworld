@@ -19,14 +19,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, message: "업체를 선택해주세요" }, { status: 400 });
   }
 
-  const [requestsRes, paymentsRes, chargesRes, cutoffRes] = await Promise.all([
-    supabase
-      .from("work_requests")
-      .select(
-        "id, start_date, receipt_no, company_code, company_name, issue_date, deposit_amount, memo, tax_bill, status, keyword, total_count, image_url, vendors(company_code)"
-      )
-      .ilike("login_id", loginId)
-      .order("start_date", { ascending: false }),
+  const [paymentsRes, chargesRes, cutoffRes] = await Promise.all([
     supabase
       .from("vendor_payments")
       .select("id, amount, paid_date, memo, company_code, company_name")
@@ -40,16 +33,16 @@ export async function GET(req: NextRequest) {
     supabase.from("vendor_settlement_cutoff").select("cutoff_date").ilike("login_id", loginId).maybeSingle(),
   ]);
 
-  if (requestsRes.error) return NextResponse.json({ ok: false, message: requestsRes.error.message }, { status: 500 });
   if (paymentsRes.error) return NextResponse.json({ ok: false, message: paymentsRes.error.message }, { status: 500 });
   if (chargesRes.error) return NextResponse.json({ ok: false, message: chargesRes.error.message }, { status: 500 });
 
   const cutoff = cutoffRes.data?.cutoff_date || null;
   const afterCutoff = (dateStr: string | null) => !cutoff || !dateStr || dateStr >= cutoff;
 
-  const totalRequested =
-    (requestsRes.data || []).reduce((sum, r) => sum + (afterCutoff(r.start_date) ? r.deposit_amount || 0 : 0), 0) +
-    (chargesRes.data || []).reduce((sum, c) => sum + (afterCutoff(c.charge_date) ? c.amount || 0 : 0), 0);
+  const totalRequested = (chargesRes.data || []).reduce(
+    (sum, c) => sum + (afterCutoff(c.charge_date) ? c.amount || 0 : 0),
+    0
+  );
   const totalPaid = (paymentsRes.data || []).reduce(
     (sum, p) => sum + (afterCutoff(p.paid_date) ? p.amount || 0 : 0),
     0
@@ -57,7 +50,6 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    requests: requestsRes.data || [],
     payments: paymentsRes.data || [],
     charges: chargesRes.data || [],
     totalRequested,
