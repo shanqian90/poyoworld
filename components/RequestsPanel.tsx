@@ -488,6 +488,44 @@ export default function RequestsPanel({
     }
   }
 
+  const [backingUp, setBackingUp] = useState(false);
+
+  async function backupAndDeleteOld() {
+    if (
+      !confirm(
+        "2개월 이전 데이터를 엑셀로 다운로드하고, DB에서는 삭제할까요?\n(엑셀 파일에 안전하게 보관되니 다운로드 후 삭제됩니다)\n이 작업은 되돌릴 수 없습니다."
+      )
+    )
+      return;
+    setBackingUp(true);
+    try {
+      const res = await fetch("/api/admin/requests/backup-delete", { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || "실패했습니다");
+        return;
+      }
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename\*=UTF-8''([^;]+)/);
+      const filename = match ? decodeURIComponent(match[1]) : "backup.xlsx";
+      const deletedCount = res.headers.get("X-Deleted-Count") || "0";
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      const cutoff = new Date();
+      cutoff.setMonth(cutoff.getMonth() - 2);
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+      setItems((prev) => prev.filter((r) => r.start_date >= cutoffStr));
+      alert(`✅ ${deletedCount}건 다운로드 및 삭제 완료`);
+    } finally {
+      setBackingUp(false);
+    }
+  }
+
   async function createRow(): Promise<WorkRequestRow | null> {
     try {
       const res = await fetch("/api/admin/requests", { method: "POST" });
@@ -646,6 +684,13 @@ export default function RequestsPanel({
           disabled={adding}
         >
           {adding ? "추가 중..." : "+ 새 행 추가"}
+        </button>
+        <button
+          className="text-xs bg-rose-600 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
+          onClick={backupAndDeleteOld}
+          disabled={backingUp}
+        >
+          {backingUp ? "처리 중..." : "🗑️ 2개월 이전 백업삭제"}
         </button>
         <button
           className="bg-sky-600 text-white text-sm font-extrabold rounded-lg px-4 py-2 disabled:opacity-60"
