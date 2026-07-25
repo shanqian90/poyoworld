@@ -20,13 +20,15 @@ export async function GET(req: NextRequest) {
     .eq("paid", false)
     .not("account_text", "is", null)
     .neq("account_text", "")
-    .order("id", { ascending: true });
+    .order("review_submitted_at", { ascending: true, nullsFirst: true });
 
   if (error) {
     return NextResponse.json({ ok: false, message: error.message }, { status: 500 });
   }
 
-  const yy = String(new Date().getFullYear()).slice(-2);
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const todayMmdd = `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
   const rows: (string | number)[][] = [
     ["날짜", "은행코드표", "계좌번호", "이체금액", "예금주", "입금계좌메모", "출금계좌메모"],
   ];
@@ -60,7 +62,7 @@ export async function GET(req: NextRequest) {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="bulk-transfer.xlsx"`,
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`${todayMmdd} 입금내역.xlsx`)}`,
       "X-Order-Ids": ids.join(","),
     },
   });

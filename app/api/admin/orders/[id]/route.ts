@@ -32,10 +32,13 @@ const EDITABLE_FIELDS = new Set([
   "delivery",
   "tracking",
   "remark",
+  "hidden_from_active",
+  "full_date",
 ]);
 
 const NUMBER_FIELDS = new Set(["amount", "review_fee"]);
-const BOOL_FIELDS = new Set(["review_done", "paid", "company_paid"]);
+const BOOL_FIELDS = new Set(["review_done", "paid", "hidden_from_active"]);
+const NOT_NULL_TEXT_FIELDS = new Set(["date_mmdd", "product_name", "option_text"]);
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const cookieStore = await cookies();
@@ -57,15 +60,24 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   let value = body.value;
-  if (value === "") value = null;
+  if (value === "") value = NOT_NULL_TEXT_FIELDS.has(field) ? "" : null;
   if (value !== null) {
     if (NUMBER_FIELDS.has(field)) value = Number(value);
     else if (BOOL_FIELDS.has(field)) value = !!value;
   }
 
+  let update: Record<string, unknown> = { [field]: value };
+  if (field === "full_date" && typeof value === "string") {
+    const m = value.match(/^\d{4}-(\d{2})-(\d{2})$/);
+    if (!m) {
+      return NextResponse.json({ ok: false, message: "날짜 형식이 올바르지 않습니다" }, { status: 400 });
+    }
+    update = { full_date: value, date_mmdd: `${m[1]}${m[2]}` };
+  }
+
   const { error } = await supabase
     .from("orders")
-    .update({ [field]: value })
+    .update(update)
     .eq("id", rowId);
 
   if (error) {

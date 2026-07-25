@@ -21,6 +21,7 @@ export async function getSlotMap(
 
   const order: Record<string, string[]> = {};
   const emptyInfo: Record<string, Record<string, { count: number; amount: number | null }>> = {};
+  const totalInfo: Record<string, Record<string, number>> = {};
 
   for (const row of data || []) {
     const product = row.product_name;
@@ -29,6 +30,9 @@ export async function getSlotMap(
 
     if (!order[product]) order[product] = [];
     if (!order[product].includes(option)) order[product].push(option);
+
+    if (!totalInfo[product]) totalInfo[product] = {};
+    totalInfo[product][option] = (totalInfo[product][option] || 0) + 1;
 
     if (row.order_no) continue; // 빈 슬롯만 카운트
 
@@ -52,6 +56,7 @@ export async function getSlotMap(
         label: optionText,
         amount: info.amount,
         remaining: info.count,
+        total: totalInfo[product]?.[optionText] || info.count,
       });
     });
     if (list.length) result[product] = list;

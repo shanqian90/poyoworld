@@ -16,13 +16,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, message: "날짜는 MMDD 4자리로 입력해주세요" }, { status: 400 });
   }
 
-  // 택배대행(Y)인 것만 = delivery 값이 채워진 것만, 실제 주문건만
+  // 택배대행(Y)인 것만 = delivery 값이 채워진 것만, 실제로 실진행~계좌까지 다 처리된 주문건만
+  // (아직 실진행 배정 전인 예정 슬롯은 송장을 만들 필요가 없으므로 제외)
   const { data, error } = await supabase
     .from("orders")
     .select("id, order_no, receiver, address, phone, product_name, tracking, date_mmdd, delivery")
     .not("delivery", "is", null)
     .neq("delivery", "")
     .not("order_no", "is", null)
+    .not("real_manager", "is", null)
+    .neq("real_manager", "")
+    .not("buyer", "is", null)
+    .neq("buyer", "")
+    .not("receiver", "is", null)
+    .neq("receiver", "")
+    .not("phone", "is", null)
+    .neq("phone", "")
+    .not("address", "is", null)
+    .neq("address", "")
+    .not("account_text", "is", null)
+    .neq("account_text", "")
     .gte("date_mmdd", from)
     .lte("date_mmdd", to)
     .order("date_mmdd", { ascending: true });

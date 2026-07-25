@@ -19,7 +19,7 @@ export const K_FLAG_INFO: Record<KFlag, { label: string; color: string }> = {
   safe: { label: "안전(최초 배정)", color: "#B3E5FC" },
   whitelist: { label: "화이트리스트", color: "#CE93D8" },
   company_dup: { label: "업체 중복(21일내)", color: "#F48FB1" },
-  product_dup: { label: "상품 중복", color: "#4DD0E1" },
+  product_dup: { label: "상품 중복", color: "#00E5FF" },
 };
 
 export const ADDRESS_DUP_COLOR = "#F48FB1";

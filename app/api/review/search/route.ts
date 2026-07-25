@@ -22,8 +22,19 @@ export async function POST(req: NextRequest) {
     const phoneSet = new Set(normalized);
     const rows = (data || []).filter((r) => phoneSet.has(normalizePhoneDigits(r.phone || "")));
 
-    const todoList = rows.filter((r) => !r.paid);
-    const paidList = rows.filter((r) => r.paid);
+    const productNames = Array.from(new Set(rows.map((r) => r.product_name).filter(Boolean)));
+    const paybackByProduct = new Map<string, string | null>();
+    if (productNames.length) {
+      const { data: guides } = await supabase
+        .from("guide_products")
+        .select("short_name, payback_name")
+        .in("short_name", productNames);
+      (guides || []).forEach((g) => paybackByProduct.set(g.short_name, g.payback_name));
+    }
+    const withPayback = rows.map((r) => ({ ...r, payback_name: paybackByProduct.get(r.product_name) || null }));
+
+    const todoList = withPayback.filter((r) => !r.paid);
+    const paidList = withPayback.filter((r) => r.paid);
 
     return NextResponse.json({ ok: true, todoList, paidList });
   } catch (err) {

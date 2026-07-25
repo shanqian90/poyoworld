@@ -57,6 +57,9 @@ export async function POST(req: NextRequest) {
         company_name: vendor.company_name,
         biz_no: vendor.biz_no,
         owner_name: vendor.owner_name,
+        biz_file_url: vendor.biz_file_url,
+        phone: loginId,
+        email: vendor.email,
         login_id: loginId,
         start_date: p.startDate,
         weekend_work: options.weekend === "Y",
@@ -79,6 +82,11 @@ export async function POST(req: NextRequest) {
 
     const { error: insErr } = await supabase.from("work_requests").insert(rows);
     if (insErr) throw new Error(insErr.message);
+
+    if (realShip) {
+      const lastUnitPrice = rows[rows.length - 1].unit_price;
+      await supabase.from("vendors").update({ real_ship_price: lastUnitPrice }).eq("id", vendor.id);
+    }
 
     await notifyNewWorkRequest({
       companyName: vendor.company_name,

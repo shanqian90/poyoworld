@@ -13,11 +13,39 @@ export default function ReviewTab({ kakaoId, accounts }: { kakaoId: string; acco
   const [todoList, setTodoList] = useState<OrderRow[]>([]);
   const [paidList, setPaidList] = useState<OrderRow[]>([]);
   const [rowState, setRowState] = useState<Record<number, RowState>>({});
+  const [activeRowId, setActiveRowId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [buyerFilter, setBuyerFilter] = useState("전체");
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accounts]);
+
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      if (activeRowId == null) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            const existing = getState(activeRowId).files;
+            setState(activeRowId, { files: [...existing, file] });
+          }
+          break;
+        }
+      }
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRowId, rowState]);
 
   async function load() {
     const phones = accounts.map((a) => a.phone).filter(Boolean);
@@ -104,10 +132,24 @@ export default function ReviewTab({ kakaoId, accounts }: { kakaoId: string; acco
     }
   }
 
-  const notDone = todoList.filter((r) => !r.review_done);
+  const notDoneAll = todoList.filter((r) => !r.review_done);
   const reviewDone = todoList.filter((r) => r.review_done);
   const waitAmt = todoList.reduce((s, r) => s + (r.amount || 0) + (r.review_fee || 0), 0);
   const paidAmt = paidList.reduce((s, r) => s + (r.amount || 0) + (r.review_fee || 0), 0);
+
+  const buyerCounts = new Map<string, number>();
+  notDoneAll.forEach((r) => {
+    const b = r.buyer || "미상";
+    buyerCounts.set(b, (buyerCounts.get(b) || 0) + 1);
+  });
+  const buyerChips = ["전체", ...Array.from(buyerCounts.keys()).sort()];
+
+  const notDone = notDoneAll.filter((r) => {
+    if (buyerFilter !== "전체" && (r.buyer || "미상") !== buyerFilter) return false;
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return [r.product_name, r.date_mmdd, r.platform, r.buyer].join(" ").toLowerCase().includes(q);
+  });
 
   return (
     <div>
@@ -137,34 +179,88 @@ export default function ReviewTab({ kakaoId, accounts }: { kakaoId: string; acco
 
       {!loading && subTab === "submit" && (
         <div>
-          {notDone.length > 0 && (
-            <div className="flex justify-center gap-4 text-sm font-bold mb-3">
-              <span className="text-rose-600">📝 미완료 {notDone.length}건</span>
+          <input
+            className="w-full border border-rose-200 rounded-lg px-3 py-2 text-sm mb-2"
+            placeholder="상품명·날짜·플랫폼으로 검색"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+
+          {notDoneAll.length > 0 && (
+            <div className="flex justify-center gap-4 text-sm font-bold mb-2">
+              <span className="text-rose-600">📝 미완료 {notDoneAll.length}건</span>
               <span className="text-neutral-300">·</span>
               <span className="text-green-700">✅ 완료 {reviewDone.length}건</span>
             </div>
           )}
+
+          {notDoneAll.length > 0 && (
+            <div className="mb-3">
+              <div className="text-xs font-bold text-neutral-500 mb-1">📄 미완료 목록</div>
+              <div className="flex gap-1.5 flex-wrap">
+                {buyerChips.map((b) => (
+                  <button
+                    key={b}
+                    className={`text-[11px] font-bold rounded-full px-2.5 py-1 ${
+                      buyerFilter === b ? "bg-rose-500 text-white" : "bg-rose-50 text-rose-500"
+                    }`}
+                    onClick={() => setBuyerFilter(b)}
+                  >
+                    {b === "전체" ? `전체 ${notDoneAll.length}` : `${b} ${buyerCounts.get(b)}`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col gap-2">
             {notDone.map((row) => {
               const st = getState(row.id);
+              const total = (row.amount || 0) + (row.review_fee || 0);
               return (
-                <div key={row.id} className="border border-rose-200 rounded-xl p-3">
-                  <div className="flex items-center justify-between cursor-pointer" onClick={() => setState(row.id, { expanded: !st.expanded })}>
+                <div key={row.id} className="rounded-xl p-3 border border-rose-300 ring-4 ring-rose-100">
+                  <div
+                    className="flex items-center justify-between cursor-pointer"
+                    onClick={() => {
+                      const next = !st.expanded;
+                      setState(row.id, { expanded: next });
+                      if (next) setActiveRowId(row.id);
+                    }}
+                  >
                     <div className="min-w-0">
-                      <div className="text-xs text-neutral-500">{row.platform} · {row.date_mmdd}</div>
-                      <div className="font-extrabold text-rose-600 truncate">{row.product_name}</div>
-                      <div className="text-xs text-neutral-500">{row.receiver} · {row.option_text}</div>
+                      <div className="text-xs text-neutral-500">{row.platform} · {row.date_mmdd} · {row.buyer}</div>
+                      <div className="text-[15px] truncate">
+                        <span className="font-extrabold text-rose-600">{row.product_name}</span>
+                        {row.review_type && (
+                          <span className="font-bold text-neutral-900"> ㅣ {row.review_type}</span>
+                        )}
+                      </div>
                     </div>
-                    <span className="text-[11px] font-bold bg-rose-100 text-rose-600 px-2 py-1 rounded-full shrink-0">미완료</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="text-[11px] font-bold bg-rose-100 text-rose-600 px-2 py-1 rounded-full">미완료</span>
+                      <span className="text-xs text-rose-400">{st.expanded ? "▲" : "▼"}</span>
+                    </div>
                   </div>
                   {st.expanded && (
-                    <div className="mt-2 pt-2 border-t border-dashed border-rose-200" onClick={(e) => e.stopPropagation()}>
-                      <div className="text-xs text-neutral-500 mb-2">
-                        {(row.amount || 0).toLocaleString("ko-KR")} + {(row.review_fee || 0).toLocaleString("ko-KR")} ={" "}
-                        <b>{((row.amount || 0) + (row.review_fee || 0)).toLocaleString("ko-KR")}원</b>
+                    <div
+                      className="mt-2 pt-2 border-t border-dashed border-rose-200"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveRowId(row.id);
+                      }}
+                    >
+                      <div className="text-xs text-neutral-700 mb-2 flex flex-col gap-1">
+                        <div><span className="font-bold text-neutral-900">주문번호</span> <span className="font-normal">{row.order_no || "-"}</span></div>
+                        <div><span className="font-bold text-neutral-900">아이디</span> <span className="font-normal">{row.user_id || "-"}</span></div>
+                        <div><span className="font-bold text-neutral-900">페이백명</span> <span className="font-normal">{row.date_mmdd} {row.product_name}</span></div>
+                        <div>
+                          <span className="font-bold text-neutral-900">페이백내역</span> {(row.amount || 0).toLocaleString("ko-KR")} +{" "}
+                          {(row.review_fee || 0).toLocaleString("ko-KR")} = <b className="text-rose-600">{total.toLocaleString("ko-KR")}원</b>
+                        </div>
                       </div>
                       <label className="block border-2 border-dashed border-rose-300 rounded-lg px-3 py-3 text-center text-xs font-bold text-rose-500 cursor-pointer bg-rose-50 mb-2">
                         📎 리뷰 사진 첨부
+                        <div className="text-[10px] font-normal text-rose-400 mt-0.5">마우스로 클릭 후 클립보드 Ctrl+V로 붙여넣기</div>
                         <input
                           type="file"
                           accept="image/*"
@@ -188,6 +284,9 @@ export default function ReviewTab({ kakaoId, accounts }: { kakaoId: string; acco
                 </div>
               );
             })}
+            {notDoneAll.length > 0 && !notDone.length && (
+              <div className="text-center text-sm text-neutral-400 py-6">검색 결과가 없습니다</div>
+            )}
           </div>
 
           {reviewDone.length > 0 && (
@@ -200,15 +299,30 @@ export default function ReviewTab({ kakaoId, accounts }: { kakaoId: string; acco
                   <div key={row.id} className="bg-white border border-green-200 rounded-xl p-3">
                     <div className="flex items-center justify-between">
                       <div className="min-w-0">
-                        <div className="text-xs text-neutral-500">{row.platform} · {row.date_mmdd}</div>
-                        <div className="font-extrabold truncate">{row.product_name}</div>
+                        <div className="text-xs text-neutral-500">{row.platform} · {row.date_mmdd} · {row.buyer}</div>
+                        <div className="text-[15px] truncate">
+                          <span className="font-extrabold text-rose-600">{row.product_name}</span>
+                          {row.review_type && (
+                            <span className="font-bold text-neutral-900"> ㅣ {row.review_type}</span>
+                          )}
+                        </div>
                       </div>
-                      <button
-                        className="text-xs border border-rose-200 text-rose-500 font-bold rounded-lg px-2 py-1 shrink-0"
-                        onClick={() => cancelRow(row)}
-                      >
-                        제출취소
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {row.review_url && (
+                          <button
+                            className="text-xs border border-green-300 text-green-700 font-bold rounded-lg px-2 py-1"
+                            onClick={() => setZoomImage(row.review_url!.split("\n")[0])}
+                          >
+                            보기
+                          </button>
+                        )}
+                        <button
+                          className="text-xs border border-rose-200 text-rose-500 font-bold rounded-lg px-2 py-1"
+                          onClick={() => cancelRow(row)}
+                        >
+                          제출취소
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -242,6 +356,16 @@ export default function ReviewTab({ kakaoId, accounts }: { kakaoId: string; acco
               <PayCard key={row.id} row={row} paid={true} />
             ))}
           </div>
+        </div>
+      )}
+
+      {zoomImage && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+          onClick={() => setZoomImage(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={zoomImage} alt="리뷰 이미지" className="max-w-full max-h-full rounded-xl" />
         </div>
       )}
     </div>

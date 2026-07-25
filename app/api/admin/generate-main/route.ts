@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, isValidAdminToken } from "@/lib/adminAuth";
 import { supabase } from "@/lib/supabase";
-import { addDaysByWeekendRule, detectPlatform, expandReviewTypes, fmtMMDD, parseDailyPlan } from "@/lib/workRequestExpand";
+import { addDaysByWeekendRule, buildGuideRow, detectPlatform, expandReviewTypes, fmtMMDD, parseDailyPlan } from "@/lib/workRequestExpand";
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
         orderRows.push({
           seq: `${day}-${seq}`,
           date_mmdd: mmdd,
+          full_date: currentDate.toISOString().slice(0, 10),
           company_code: r.company_code,
           company_name: r.company_name,
           platform,
@@ -68,18 +69,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    guideRows.push({
-      active: true,
-      code: r.company_code,
-      company: r.company_name,
-      platform,
-      short_name: r.keyword,
-      option_text: r.product_option,
-      product_url: r.product_url,
-      price: r.product_price,
-      review_type: r.review_type,
-      delivery: r.real_shipping ? "실배송" : "빈박스",
-    });
+    if (!r.guide_created) guideRows.push(buildGuideRow(r));
 
     doneIds.push(r.id);
   }
@@ -99,11 +89,29 @@ export async function POST(req: NextRequest) {
   if (doneIds.length) {
     const { error: updErr } = await supabase
       .from("work_requests")
-      .update({ status: "진행중", main_created: true })
+      .update({ status: "진행중", main_created: true, guide_created: true })
       .in("id", doneIds);
     if (updErr) {
       return NextResponse.json({ ok: false, message: `상태 업데이트 실패: ${updErr.message}` }, { status: 500 });
     }
+  }
+
+  // 메인시트 생성 = 실제 진행 시작 시점이므로, 견적 요청금액이 있는 건은 업체정산에 입금으로 자동 등록한다
+  const paymentRows = pending
+    .filter((r) => doneIds.includes(r.id) && r.login_id && Number(r.deposit_amount) > 0)
+    .map((r) => ({
+      login_id: r.login_id,
+      amount: Number(r.deposit_amount),
+      paid_date: new Date().toISOString().slice(0, 10),
+      memo: `메인시트 생성 자동등록 (접수번호 ${r.receipt_no})`,
+    }));
+  let paymentRowsCreated = 0;
+  if (paymentRows.length) {
+    const { error: payErr } = await supabase.from("vendor_payments").insert(paymentRows);
+    if (payErr) {
+      return NextResponse.json({ ok: false, message: `입금 자동등록 실패: ${payErr.message}` }, { status: 500 });
+    }
+    paymentRowsCreated = paymentRows.length;
   }
 
   return NextResponse.json({
@@ -111,5 +119,6 @@ export async function POST(req: NextRequest) {
     orderRows: orderRows.length,
     guideRows: guideRows.length,
     requestCount: doneIds.length,
+    paymentRowsCreated,
   });
 }

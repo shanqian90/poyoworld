@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 24, // 1일
+    maxAge: 60 * 60 * 24 * 90, // 90일 (자동로그인 유지)
   });
   return res;
 }

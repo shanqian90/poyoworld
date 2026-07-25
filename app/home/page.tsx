@@ -8,6 +8,7 @@ import { Account, GuideProduct, SlotMap } from "@/lib/types";
 import GuideTab from "@/components/GuideTab";
 import PurchaseTab from "@/components/PurchaseTab";
 import ReviewTab from "@/components/ReviewTab";
+import ChangePasswordBox from "@/components/ChangePasswordBox";
 
 type Tab = "guide" | "purchase" | "review";
 
@@ -30,6 +31,12 @@ export default function HomePage() {
     }
     setKakaoIdState(id);
     load(id);
+
+    function onFocus() {
+      refresh(id);
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -84,6 +91,10 @@ export default function HomePage() {
                 로그아웃
               </button>
             </div>
+          </div>
+
+          <div className="mb-3">
+            <ChangePasswordBox kakaoId={kakaoId} />
           </div>
 
           <div className="flex gap-2 mb-3">

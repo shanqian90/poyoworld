@@ -3,7 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
-type Group = { writeDate: string; companyCode: string; companyName: string; display: string; itemCount: number; totalQty: number };
+type Group = {
+  writeDate: string;
+  companyCode: string;
+  companyName: string;
+  display: string;
+  itemCount: number;
+  totalQty: number;
+  taxBill: boolean;
+};
 type ExtraItem = { name: string; amount: string; vatEnabled: boolean; feeEnabled: boolean };
 type GroupRow = {
   productName: string;
@@ -65,6 +73,8 @@ export default function EstimatePanel() {
     setPreviewHtml("");
     setImageUrl("");
     setSummary(null);
+    setVatEnabled(g.taxBill);
+    setTaxRateText(g.taxBill ? "10%" : "0%");
     setRowsLoading(true);
     setStatus("업체 데이터 불러오는 중...");
     try {

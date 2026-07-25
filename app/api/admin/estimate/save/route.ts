@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { buildEstimateData } from "@/lib/estimate";
 import { getEstimateSourceRows } from "@/lib/estimateRows";
 import { uploadImage } from "@/lib/storage";
+import { codeNameSegment, safeSegment } from "@/lib/textSafe";
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
@@ -48,14 +49,10 @@ export async function POST(req: NextRequest) {
     const depositDateStr =
       writeDate.length === 4 ? `${today.getFullYear()}-${writeDate.slice(0, 2)}-${writeDate.slice(2, 4)}` : null;
 
-    const safeCode = (companyCode || "noCode").replace(/[^a-zA-Z0-9-]+/g, "");
-    const fileName = `${writeDate}_${safeCode}_${Date.now()}.png`;
-    const imageUrl = await uploadImage(
-      supabase,
-      "estimate-images",
-      `${today.getFullYear()}${pad(today.getMonth() + 1)}${pad(today.getDate())}/${fileName}`,
-      imageDataUrl
-    );
+    const companySegment = codeNameSegment(companyCode, companyName);
+    const productSegment = safeSegment(rows[0]?.productName);
+    const fileName = `${companySegment}_${productSegment}_${Date.now()}.png`;
+    const imageUrl = await uploadImage(supabase, "estimate-images", `${writeDate}/${fileName}`, imageDataUrl);
 
     for (let i = 0; i < ids.length; i++) {
       const update: Record<string, unknown> = { issue_date: issueDateStr, deposit_date: depositDateStr };

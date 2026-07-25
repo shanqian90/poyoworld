@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 
 export type WorkRequestRow = {
@@ -13,6 +13,7 @@ export type WorkRequestRow = {
   owner_name: string | null;
   phone: string | null;
   login_id: string | null;
+  email: string | null;
   issue_date: string | null;
   deposit_amount: number | null;
   deposit_date: string | null;
@@ -33,6 +34,7 @@ export type WorkRequestRow = {
   biz_file_url: string | null;
   status: string;
   main_created: boolean;
+  guide_created: boolean;
   memo: string | null;
 };
 
@@ -41,6 +43,11 @@ type Kind = "text" | "bool";
 
 const LINK_FIELDS = new Set<Field>(["image_url", "biz_file_url"]);
 const BOOL_FIELDS = new Set<Field>(["weekend_work", "real_shipping", "payment_agency", "delivery_agency", "tax_bill", "main_created"]);
+const STATUS_STYLE: Record<string, string> = {
+  접수: "bg-emerald-500 text-white",
+  대기: "bg-pink-400 text-white",
+  진행중: "bg-sky-400 text-white",
+};
 
 const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaultWidth: number }[] = [
   { key: "start_date", label: "시작일", defaultWidth: 90 },
@@ -50,7 +57,7 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
   { key: "biz_no", label: "사업자번호", defaultWidth: 100 },
   { key: "owner_name", label: "대표자명", defaultWidth: 80 },
   { key: "phone", label: "전화번호", defaultWidth: 110 },
-  { key: "login_id", label: "아이디(전화/이메일)", defaultWidth: 150 },
+  { key: "email", label: "이메일", defaultWidth: 150 },
   { key: "issue_date", label: "발행일", defaultWidth: 90 },
   { key: "deposit_amount", label: "입금금액", align: "right", defaultWidth: 90 },
   { key: "deposit_date", label: "입금일", defaultWidth: 90 },
@@ -101,9 +108,68 @@ export default function RequestsPanel({
   const cellKey = (id: number, field: Field) => `${id}:${field}`;
   const clearableField = (f: Field) => !BOOL_FIELDS.has(f) && !LINK_FIELDS.has(f);
   const colKeys = COLUMNS.map((c) => c.key);
+  type UndoEntry = { id: number; field: Field; prevValue: string | number | boolean | null };
+  const undoStack = useRef<UndoEntry[][]>([]);
+
+  function undo() {
+    const batch = undoStack.current.pop();
+    if (!batch) return;
+    batch.forEach((entry) => saveField(entry.id, entry.field, entry.prevValue, false));
+  }
+
+  function fillDown() {
+    const bounds = selectionBounds();
+    if (!bounds) return;
+    const batch: UndoEntry[] = [];
+    for (let ci = bounds.colLo; ci <= bounds.colHi; ci++) {
+      const field = colKeys[ci];
+      if (!clearableField(field)) continue;
+      const topRow = filtered[bounds.rowLo];
+      if (!topRow) continue;
+      const value = topRow[field] as string | number | boolean | null;
+      for (let ri = bounds.rowLo + 1; ri <= bounds.rowHi; ri++) {
+        const row = filtered[ri];
+        if (!row) continue;
+        batch.push({ id: row.id, field, prevValue: row[field] as string | number | boolean | null });
+        saveField(row.id, field, value, false);
+      }
+    }
+    if (batch.length) undoStack.current.push(batch);
+  }
+
+  const focusRef = useRef<{ id: number; field: Field } | null>(null);
+
+  function moveSelection(dRow: number, dCol: number, extend = false) {
+    const from = focusRef.current || dragAnchor;
+    if (!from) return;
+    const ri = filtered.findIndex((r) => r.id === from.id);
+    const ci = colKeys.indexOf(from.field);
+    if (ri === -1 || ci === -1) return;
+    const nextRi = Math.min(Math.max(ri + dRow, 0), filtered.length - 1);
+    const nextCi = Math.min(Math.max(ci + dCol, 0), colKeys.length - 1);
+    const row = filtered[nextRi];
+    if (!row) return;
+    const field = colKeys[nextCi];
+    focusRef.current = { id: row.id, field };
+    if (extend && dragAnchor) {
+      const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
+      const colA = colKeys.indexOf(dragAnchor.field);
+      const [rowLo, rowHi] = rowA <= nextRi ? [rowA, nextRi] : [nextRi, rowA];
+      const [colLo, colHi] = colA <= nextCi ? [colA, nextCi] : [nextCi, colA];
+      const next = new Set<string>();
+      for (let r2 = rowLo; r2 <= rowHi; r2++) {
+        for (let c2 = colLo; c2 <= colHi; c2++) next.add(cellKey(filtered[r2].id, colKeys[c2]));
+      }
+      setSelectedCells(next);
+    } else {
+      setDragAnchor({ id: row.id, field });
+      setSelectedCells(new Set([cellKey(row.id, field)]));
+    }
+  }
 
   function startDrag(row: WorkRequestRow, field: Field) {
     setDragAnchor({ id: row.id, field });
+    focusRef.current = { id: row.id, field };
     setIsDragging(true);
     setSelectedCells(new Set([cellKey(row.id, field)]));
   }
@@ -171,37 +237,65 @@ export default function RequestsPanel({
 
       if ((e.key === "v" || e.key === "V") && (e.ctrlKey || e.metaKey) && !inInput && dragAnchor) {
         e.preventDefault();
-        navigator.clipboard.readText().then((text) => {
-          const grid = text.replace(/\r/g, "").split("\n").map((line) => line.split("\t"));
-          const startRow = filtered.findIndex((r) => r.id === dragAnchor.id);
-          const startCol = colKeys.indexOf(dragAnchor.field);
-          if (startRow === -1 || startCol === -1) return;
-          for (let ri = 0; ri < grid.length; ri++) {
-            const targetRow = filtered[startRow + ri];
-            if (!targetRow) break;
-            for (let ci = 0; ci < grid[ri].length; ci++) {
-              const field = colKeys[startCol + ci];
-              if (!field || !clearableField(field)) continue;
-              const raw = grid[ri][ci].trim();
-              const isNumberField = field === "unit_price" || field === "product_price" || field === "total_count" || field === "deposit_amount";
-              const value = raw === "" ? null : isNumberField ? Number(raw) : raw;
-              saveField(targetRow.id, field, value);
-            }
-          }
-        });
+        navigator.clipboard.readText().then((text) => pasteGrid(text));
         return;
+      }
+
+      if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !inInput) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+
+      if ((e.key === "d" || e.key === "D") && (e.ctrlKey || e.metaKey) && !inInput && selectedCells.size > 1) {
+        e.preventDefault();
+        fillDown();
+        return;
+      }
+
+      if (!editing && !inInput && dragAnchor && !e.ctrlKey && !e.metaKey) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const row = filtered.find((r) => r.id === dragAnchor.id);
+          if (row && !BOOL_FIELDS.has(dragAnchor.field) && !LINK_FIELDS.has(dragAnchor.field) && dragAnchor.field !== "status") {
+            startEdit(row, dragAnchor.field);
+          }
+          return;
+        }
+        if (e.key === "Escape") {
+          setSelectedCells(new Set());
+          return;
+        }
+        if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault();
+          const dRow = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+          const dCol = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+          moveSelection(dRow, dCol);
+          return;
+        }
+        if (e.key === "Tab") {
+          e.preventDefault();
+          moveSelection(0, e.shiftKey ? -1 : 1);
+          return;
+        }
       }
 
       if (editing) return;
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       if (inInput) return;
       if (selectedCells.size > 1) {
+        const batch: UndoEntry[] = [];
         selectedCells.forEach((key) => {
           const idx = key.lastIndexOf(":");
           const id = Number(key.slice(0, idx));
           const field = key.slice(idx + 1) as Field;
-          if (clearableField(field)) saveField(id, field, null);
+          if (!clearableField(field)) return;
+          const current = items.find((r) => r.id === id);
+          if (!current) return;
+          batch.push({ id, field, prevValue: current[field] as string | number | boolean | null });
+          saveField(id, field, null, false);
         });
+        if (batch.length) undoStack.current.push(batch);
         return;
       }
       if (!hoverCell) return;
@@ -213,7 +307,11 @@ export default function RequestsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hoverCell, editing, selectedCells, dragAnchor]);
 
-  async function saveField(id: number, field: Field, value: string | number | boolean | null) {
+  async function saveField(id: number, field: Field, value: string | number | boolean | null, pushUndo = true) {
+    if (pushUndo) {
+      const current = items.find((r) => r.id === id);
+      if (current) undoStack.current.push([{ id, field, prevValue: current[field] as string | number | boolean | null }]);
+    }
     setSavingId(id);
     try {
       const res = await fetch(`/api/admin/requests/${id}`, {
@@ -266,6 +364,11 @@ export default function RequestsPanel({
     if (next) startEdit(next, editing.field);
   }
 
+  function selectWholeRow(row: WorkRequestRow) {
+    setDragAnchor({ id: row.id, field: colKeys[0] });
+    setSelectedCells(new Set(colKeys.map((k) => cellKey(row.id, k))));
+  }
+
   function startResize(e: ReactMouseEvent, key: Field) {
     e.preventDefault();
     e.stopPropagation();
@@ -316,7 +419,106 @@ export default function RequestsPanel({
     }
   }
 
+  const [adding, setAdding] = useState(false);
+
+  async function addRow() {
+    setAdding(true);
+    try {
+      const row = await createRow();
+      if (row) {
+        setItems((prev) => [...prev, row]);
+        setQ("");
+      }
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function createRow(): Promise<WorkRequestRow | null> {
+    try {
+      const res = await fetch("/api/admin/requests", { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.message || "추가 실패");
+        return null;
+      }
+      return data.row as WorkRequestRow;
+    } catch {
+      alert("추가 중 오류가 발생했습니다");
+      return null;
+    }
+  }
+
+  async function pasteGrid(text: string) {
+    if (!dragAnchor) return;
+    const lines = text.replace(/\r/g, "").split("\n");
+    while (lines.length && lines[lines.length - 1] === "") lines.pop();
+    const grid = lines.map((line) => line.split("\t"));
+    if (!grid.length) return;
+    const startRow = filtered.findIndex((r) => r.id === dragAnchor.id);
+    const startCol = colKeys.indexOf(dragAnchor.field);
+    if (startRow === -1 || startCol === -1) return;
+    const localRows = filtered.slice();
+    const batch: UndoEntry[] = [];
+    for (let ri = 0; ri < grid.length; ri++) {
+      let targetRow = localRows[startRow + ri];
+      if (!targetRow) {
+        const row = await createRow();
+        if (!row) break;
+        targetRow = row;
+        localRows.push(row);
+        setItems((prev) => [...prev, row]);
+      }
+      for (let ci = 0; ci < grid[ri].length; ci++) {
+        const field = colKeys[startCol + ci];
+        if (!field || !clearableField(field)) continue;
+        const raw = grid[ri][ci].trim();
+        const isNumberField = field === "unit_price" || field === "product_price" || field === "total_count" || field === "deposit_amount";
+        const value = raw === "" ? null : isNumberField ? Number(raw) : raw;
+        batch.push({ id: targetRow.id, field, prevValue: targetRow[field] as string | number | boolean | null });
+        saveField(targetRow.id, field, value, false);
+      }
+    }
+    if (batch.length) undoStack.current.push(batch);
+  }
+
+  async function deleteRow(id: number) {
+    if (!confirm("이 요청을 삭제할까요?")) return;
+    const res = await fetch(`/api/admin/requests/${id}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!data.ok) {
+      alert(data.message || "삭제 실패");
+      return;
+    }
+    setItems((prev) => prev.filter((r) => r.id !== id));
+  }
+
   const pendingCount = items.filter((r) => r.status === "접수" && !r.main_created).length;
+  const pendingGuideCount = items.filter((r) => r.status === "접수" && !r.guide_created).length;
+
+  const [generatingGuide, setGeneratingGuide] = useState(false);
+  const [guideResult, setGuideResult] = useState("");
+
+  async function generateGuideOnly() {
+    setGeneratingGuide(true);
+    setGuideResult("");
+    try {
+      const res = await fetch("/api/admin/generate-guide", { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) {
+        setGuideResult("❌ " + (data.message || "생성 실패"));
+        return;
+      }
+      setGuideResult(`✅ 요청 ${data.requestCount}건 처리 → 구매가이드 ${data.guideRows}건 생성`);
+      setItems((prev) =>
+        prev.map((r) => (r.status === "접수" && !r.guide_created ? { ...r, guide_created: true } : r))
+      );
+    } catch {
+      setGuideResult("❌ 생성 중 오류가 발생했습니다");
+    } finally {
+      setGeneratingGuide(false);
+    }
+  }
 
   async function generate() {
     setGenerating(true);
@@ -329,10 +531,13 @@ export default function RequestsPanel({
         return;
       }
       setResult(
-        `✅ 요청 ${data.requestCount}건 처리 → 메인시트 슬롯 ${data.orderRows}건 생성, 구매가이드 ${data.guideRows}건 생성`
+        `✅ 요청 ${data.requestCount}건 처리 → 메인시트 슬롯 ${data.orderRows}건 생성, 구매가이드 ${data.guideRows}건 생성` +
+          (data.paymentRowsCreated ? `, 업체정산 입금 ${data.paymentRowsCreated}건 자동등록` : "")
       );
       setItems((prev) =>
-        prev.map((r) => (r.status === "접수" && !r.main_created ? { ...r, status: "진행중", main_created: true } : r))
+        prev.map((r) =>
+          r.status === "접수" && !r.main_created ? { ...r, status: "진행중", main_created: true, guide_created: true } : r
+        )
       );
     } catch {
       setResult("❌ 생성 중 오류가 발생했습니다");
@@ -341,8 +546,27 @@ export default function RequestsPanel({
     }
   }
 
+  const SUPABASE_PROJECT_REF = "gbbwqubgujfuoolvedbq";
+  const IMAGE_FOLDER_LINKS = [
+    { label: "📁 업체견적서", bucket: "estimate-images" },
+    { label: "📁 사업자등록증", bucket: "vendor-files" },
+  ];
+
   return (
     <div className="flex flex-col gap-3 h-full">
+      <div className="flex items-center gap-2 flex-wrap">
+        {IMAGE_FOLDER_LINKS.map((f) => (
+          <a
+            key={f.bucket}
+            href={`https://supabase.com/dashboard/project/${SUPABASE_PROJECT_REF}/storage/buckets/${f.bucket}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs bg-neutral-700 text-white font-bold rounded-lg px-2.5 py-1 hover:bg-neutral-800"
+          >
+            {f.label} →
+          </a>
+        ))}
+      </div>
       <div className="flex items-center gap-2">
         <Link href="/admin" className="text-sm font-bold text-neutral-500 underline">
           ← 메인 전체보기
@@ -363,6 +587,20 @@ export default function RequestsPanel({
           onChange={(e) => setQ(e.target.value)}
         />
         <button
+          className="text-xs bg-neutral-800 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
+          onClick={addRow}
+          disabled={adding}
+        >
+          {adding ? "추가 중..." : "+ 새 행 추가"}
+        </button>
+        <button
+          className="bg-sky-600 text-white text-sm font-extrabold rounded-lg px-4 py-2 disabled:opacity-60"
+          onClick={generateGuideOnly}
+          disabled={generatingGuide || pendingGuideCount === 0}
+        >
+          {generatingGuide ? "생성 중..." : `구매가이드 생성 (대기 ${pendingGuideCount}건)`}
+        </button>
+        <button
           className="bg-emerald-600 text-white text-sm font-extrabold rounded-lg px-4 py-2 disabled:opacity-60"
           onClick={generate}
           disabled={generating || pendingCount === 0}
@@ -370,6 +608,11 @@ export default function RequestsPanel({
           {generating ? "생성 중..." : `메인시트 생성 (대기 ${pendingCount}건)`}
         </button>
       </div>
+      {guideResult && (
+        <div className="bg-sky-50 border border-sky-300 text-sky-800 text-sm rounded-xl px-3 py-2 whitespace-pre-line">
+          {guideResult}
+        </div>
+      )}
 
       <div className="border border-neutral-300 rounded-xl px-3 py-2 flex items-center gap-2 bg-neutral-50">
         <span className="text-xs font-bold text-neutral-500 shrink-0">🔗 업체 웹앱 링크</span>
@@ -418,15 +661,18 @@ export default function RequestsPanel({
       <div className="border border-neutral-300 rounded-xl overflow-auto flex-1">
         <table
           className="text-xs border-collapse"
-          style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 0) }}
+          style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 36 + 36) }}
         >
           <colgroup>
+            <col style={{ width: 36 }} />
             {COLUMNS.map((c) => (
               <col key={c.key} style={{ width: widths[c.key] }} />
             ))}
+            <col style={{ width: 36 }} />
           </colgroup>
           <thead className="sticky top-0 bg-neutral-800 text-white z-10">
             <tr>
+              <th className="px-1 py-2 text-center border-r border-neutral-700"></th>
               {COLUMNS.map((c) => (
                 <th
                   key={c.key}
@@ -439,39 +685,51 @@ export default function RequestsPanel({
                   />
                 </th>
               ))}
+              <th className="px-2 py-2 text-center whitespace-nowrap"></th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {filtered.map((r, ri) => (
               <tr key={r.id} className="border-b border-neutral-200">
+                <td
+                  className="px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 cursor-pointer hover:bg-neutral-200 select-none"
+                  onClick={() => selectWholeRow(r)}
+                >
+                  {ri + 1}
+                </td>
                 {COLUMNS.map((c) => {
                   const val = r[c.key];
                   if (c.kind === "bool" || BOOL_FIELDS.has(c.key)) {
                     const on = !!val;
                     return (
-                      <td key={c.key} className="px-2 py-1.5 border-r border-neutral-200 text-center overflow-hidden">
-                        <button
-                          className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                            on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
-                          }`}
-                          onClick={() => toggleBool(r, c.key)}
-                          disabled={savingId === r.id}
-                        >
-                          {c.key === "main_created" ? (on ? "생성완료" : "아니오") : on ? "예" : "아니오"}
-                        </button>
+                      <td
+                        key={c.key}
+                        className={`px-2 py-1.5 border-r border-b border-neutral-300 text-center overflow-hidden cursor-pointer font-bold text-xs ${
+                          on ? "bg-emerald-400 text-white" : "bg-neutral-50 text-neutral-400"
+                        }`}
+                        onClick={() => toggleBool(r, c.key)}
+                      >
+                        {savingId === r.id ? "..." : c.key === "main_created" ? (on ? "생성완료" : "아니오") : on ? "예" : "아니오"}
                       </td>
                     );
                   }
                   const isLink = LINK_FIELDS.has(c.key);
                   const isEditing = editing?.id === r.id && editing.field === c.key;
                   const isSelected = selectedCells.has(cellKey(r.id, c.key));
+                  const needsIssue = c.key === "issue_date" && !r.issue_date && r.tax_bill;
+                  const statusStyle = c.key === "status" ? STATUS_STYLE[String(val ?? "")] || "" : "";
                   return (
                     <td
                       key={c.key}
-                      className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center overflow-hidden text-ellipsis cursor-text hover:bg-black/5 select-none"
-                      style={{ boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined }}
+                      className={`px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center overflow-hidden text-ellipsis select-none font-bold ${
+                        statusStyle || "cursor-text hover:bg-black/5"
+                      }`}
+                      style={{
+                        boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined,
+                        background: needsIssue && !isSelected ? "#FFFDE0" : undefined,
+                      }}
                       title={typeof val === "string" ? val : undefined}
-                      onClick={() => !isEditing && !isLink && startEdit(r, c.key)}
+                      onDoubleClick={() => !isEditing && !isLink && startEdit(r, c.key)}
                       onMouseDown={() => startDrag(r, c.key)}
                       onMouseEnter={() => {
                         setHoverCell({ id: r.id, field: c.key });
@@ -482,7 +740,7 @@ export default function RequestsPanel({
                       {isEditing && c.key === "status" ? (
                         <select
                           autoFocus
-                          className="w-full border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
+                          className="w-full border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center bg-white text-neutral-900"
                           value={editValue}
                           onChange={(e) => {
                             setEditValue(e.target.value);
@@ -515,13 +773,7 @@ export default function RequestsPanel({
                           }}
                         />
                       ) : c.key === "status" ? (
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                            r.main_created ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
-                          }`}
-                        >
-                          {String(val ?? "")}
-                        </span>
+                        String(val ?? "")
                       ) : isLink && val ? (
                         <a href={String(val)} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
                           보기
@@ -534,11 +786,20 @@ export default function RequestsPanel({
                     </td>
                   );
                 })}
+                <td className="px-2 py-1.5">
+                  <button
+                    className="text-neutral-400 hover:text-rose-600 font-bold px-1"
+                    onClick={() => deleteRow(r.id)}
+                    title="요청 삭제"
+                  >
+                    ✕
+                  </button>
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length} className="text-center text-neutral-400 py-8">
+                <td colSpan={COLUMNS.length + 2} className="text-center text-neutral-400 py-8">
                   제출된 작업요청서가 없습니다
                 </td>
               </tr>

@@ -1,14 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { GuideProduct } from "@/lib/types";
 import KakaoGuideModal from "@/components/KakaoGuideModal";
+import { fileToDataUrl, readClipboardImageFile } from "@/lib/clipboardImage";
+import { todayMMDD } from "@/lib/phone";
 
 type Field = keyof GuideProduct;
-type Kind = "text" | "toggle";
+type Kind = "text" | "toggle" | "select";
 
-const LINK_FIELDS = new Set<Field>(["product_url", "image_url"]);
+const LINK_FIELDS = new Set<Field>(["image_url", "keyword_url"]);
+const SELECT_OPTIONS: Partial<Record<Field, string[]>> = {
+  buy_type: ["키워드구매", "링크구매"],
+};
 
 const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaultWidth: number }[] = [
   { key: "active", label: "진행여부", kind: "toggle", defaultWidth: 70 },
@@ -24,10 +29,10 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
   { key: "price", label: "가격", align: "right", defaultWidth: 80 },
   { key: "review_fee", label: "리뷰비", defaultWidth: 80 },
   { key: "payback_name", label: "페이백명", defaultWidth: 100 },
-  { key: "status", label: "상태", defaultWidth: 90 },
-  { key: "buy_type", label: "구매유형", defaultWidth: 100 },
+  { key: "buy_type", label: "구매유형", kind: "select", defaultWidth: 100 },
   { key: "review_type", label: "리뷰가이드", defaultWidth: 140 },
   { key: "delivery", label: "배송형태", defaultWidth: 90 },
+  { key: "keyword_url", label: "키워드링크", defaultWidth: 90 },
   { key: "image_url", label: "이미지링크", defaultWidth: 90 },
 ];
 
@@ -59,9 +64,68 @@ export default function AdminGuideTable({
     const col = COLUMNS.find((c) => c.key === f);
     return !!col && col.kind !== "toggle" && !LINK_FIELDS.has(f);
   };
+  type UndoEntry = { id: string; field: Field; prevValue: string | number | boolean | null };
+  const undoStack = useRef<UndoEntry[][]>([]);
+
+  function undo() {
+    const batch = undoStack.current.pop();
+    if (!batch) return;
+    batch.forEach((entry) => saveField(entry.id, entry.field, entry.prevValue, false));
+  }
+
+  function fillDown() {
+    const bounds = selectionBounds();
+    if (!bounds) return;
+    const batch: UndoEntry[] = [];
+    for (let ci = bounds.colLo; ci <= bounds.colHi; ci++) {
+      const field = colKeys[ci];
+      if (!clearableField(field)) continue;
+      const topRow = filtered[bounds.rowLo];
+      if (!topRow) continue;
+      const value = topRow[field] as string | number | boolean | null;
+      for (let ri = bounds.rowLo + 1; ri <= bounds.rowHi; ri++) {
+        const row = filtered[ri];
+        if (!row) continue;
+        batch.push({ id: row.id, field, prevValue: row[field] as string | number | boolean | null });
+        saveField(row.id, field, value, false);
+      }
+    }
+    if (batch.length) undoStack.current.push(batch);
+  }
+
+  const focusRef = useRef<{ id: string; field: Field } | null>(null);
+
+  function moveSelection(dRow: number, dCol: number, extend = false) {
+    const from = focusRef.current || dragAnchor;
+    if (!from) return;
+    const ri = filtered.findIndex((r) => r.id === from.id);
+    const ci = colKeys.indexOf(from.field);
+    if (ri === -1 || ci === -1) return;
+    const nextRi = Math.min(Math.max(ri + dRow, 0), filtered.length - 1);
+    const nextCi = Math.min(Math.max(ci + dCol, 0), colKeys.length - 1);
+    const row = filtered[nextRi];
+    if (!row) return;
+    const field = colKeys[nextCi];
+    focusRef.current = { id: row.id, field };
+    if (extend && dragAnchor) {
+      const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
+      const colA = colKeys.indexOf(dragAnchor.field);
+      const [rowLo, rowHi] = rowA <= nextRi ? [rowA, nextRi] : [nextRi, rowA];
+      const [colLo, colHi] = colA <= nextCi ? [colA, nextCi] : [nextCi, colA];
+      const next = new Set<string>();
+      for (let r2 = rowLo; r2 <= rowHi; r2++) {
+        for (let c2 = colLo; c2 <= colHi; c2++) next.add(cellKey(filtered[r2].id, colKeys[c2]));
+      }
+      setSelectedCells(next);
+    } else {
+      setDragAnchor({ id: row.id, field });
+      setSelectedCells(new Set([cellKey(row.id, field)]));
+    }
+  }
 
   function startDrag(row: GuideProduct, field: Field) {
     setDragAnchor({ id: row.id, field });
+    focusRef.current = { id: row.id, field };
     setIsDragging(true);
     setSelectedCells(new Set([cellKey(row.id, field)]));
   }
@@ -129,36 +193,64 @@ export default function AdminGuideTable({
 
       if ((e.key === "v" || e.key === "V") && (e.ctrlKey || e.metaKey) && !inInput && dragAnchor) {
         e.preventDefault();
-        navigator.clipboard.readText().then((text) => {
-          const grid = text.replace(/\r/g, "").split("\n").map((line) => line.split("\t"));
-          const startRow = filtered.findIndex((r) => r.id === dragAnchor.id);
-          const startCol = colKeys.indexOf(dragAnchor.field);
-          if (startRow === -1 || startCol === -1) return;
-          for (let ri = 0; ri < grid.length; ri++) {
-            const targetRow = filtered[startRow + ri];
-            if (!targetRow) break;
-            for (let ci = 0; ci < grid[ri].length; ci++) {
-              const field = colKeys[startCol + ci];
-              if (!field || !clearableField(field)) continue;
-              const raw = grid[ri][ci].trim();
-              const value = raw === "" ? null : field === "price" ? Number(raw) : raw;
-              saveField(targetRow.id, field, value);
-            }
-          }
-        });
+        handlePasteCommand();
         return;
+      }
+
+      if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !inInput) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+
+      if ((e.key === "d" || e.key === "D") && (e.ctrlKey || e.metaKey) && !inInput && selectedCells.size > 1) {
+        e.preventDefault();
+        fillDown();
+        return;
+      }
+
+      if (!editing && !inInput && dragAnchor && !e.ctrlKey && !e.metaKey) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const row = filtered.find((r) => r.id === dragAnchor.id);
+          const col = COLUMNS.find((c) => c.key === dragAnchor.field);
+          if (row && col && col.kind !== "toggle" && !LINK_FIELDS.has(dragAnchor.field)) startEdit(row, dragAnchor.field);
+          return;
+        }
+        if (e.key === "Escape") {
+          setSelectedCells(new Set());
+          return;
+        }
+        if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault();
+          const dRow = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+          const dCol = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+          moveSelection(dRow, dCol, e.shiftKey);
+          return;
+        }
+        if (e.key === "Tab") {
+          e.preventDefault();
+          moveSelection(0, e.shiftKey ? -1 : 1);
+          return;
+        }
       }
 
       if (editing) return;
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       if (inInput) return;
       if (selectedCells.size > 1) {
+        const batch: UndoEntry[] = [];
         selectedCells.forEach((key) => {
           const idx = key.lastIndexOf(":");
           const id = key.slice(0, idx);
           const field = key.slice(idx + 1) as Field;
-          if (clearableField(field)) saveField(id, field, null);
+          if (!clearableField(field)) return;
+          const current = rows.find((r) => r.id === id);
+          if (!current) return;
+          batch.push({ id, field, prevValue: current[field] as string | number | boolean | null });
+          saveField(id, field, null, false);
         });
+        if (batch.length) undoStack.current.push(batch);
         return;
       }
       if (!hoverCell) return;
@@ -170,6 +262,11 @@ export default function AdminGuideTable({
     return () => window.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hoverCell, editing, selectedCells, dragAnchor]);
+
+  function selectWholeRow(row: GuideProduct) {
+    setDragAnchor({ id: row.id, field: colKeys[0] });
+    setSelectedCells(new Set(colKeys.map((k) => cellKey(row.id, k))));
+  }
 
   function startResize(e: ReactMouseEvent, key: Field) {
     e.preventDefault();
@@ -199,7 +296,11 @@ export default function AdminGuideTable({
     });
   }, [rows, q, activeOnly]);
 
-  async function saveField(id: string, field: Field, value: string | number | boolean | null) {
+  async function saveField(id: string, field: Field, value: string | number | boolean | null, pushUndo = true) {
+    if (pushUndo) {
+      const current = rows.find((r) => r.id === id);
+      if (current) undoStack.current.push([{ id, field, prevValue: current[field] as string | number | boolean | null }]);
+    }
     setSavingId(id);
     try {
       const res = await fetch(`/api/admin/guides/${id}`, {
@@ -213,6 +314,10 @@ export default function AdminGuideTable({
         return;
       }
       setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+      if (field === "option_text" && typeof value === "string" && value.includes("/빈")) {
+        saveField(id, "delivery", "빈박스", false);
+        saveField(id, "review_fee", "1000", false);
+      }
     } catch {
       alert("저장 중 오류가 발생했습니다");
     } finally {
@@ -256,18 +361,163 @@ export default function AdminGuideTable({
   async function addRow() {
     setAdding(true);
     try {
+      const row = await createRow();
+      if (row) {
+        setRows((prev) => [...prev, row]);
+        setQ("");
+        setActiveOnly(false);
+      }
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  const [refreshingPayback, setRefreshingPayback] = useState(false);
+
+  async function refreshPaybackDates() {
+    if (!confirm(`진행중(예)인 ${filtered.filter((r) => r.active).length}건의 페이백명을 오늘 날짜(${todayMMDD()})로 변경할까요?`)) return;
+    setRefreshingPayback(true);
+    const mmdd = todayMMDD();
+    const batch: UndoEntry[] = [];
+    try {
+      for (const row of filtered) {
+        if (!row.active || !row.short_name) continue;
+        const next = `${mmdd} ${row.short_name}`;
+        if (next === row.payback_name) continue;
+        batch.push({ id: row.id, field: "payback_name", prevValue: row.payback_name });
+        await saveField(row.id, "payback_name", next, false);
+      }
+      if (batch.length) undoStack.current.push(batch);
+    } finally {
+      setRefreshingPayback(false);
+    }
+  }
+
+  const [autofillingId, setAutofillingId] = useState<string | null>(null);
+  const [autofillingAll, setAutofillingAll] = useState(false);
+
+  async function runAutofill(row: GuideProduct): Promise<{ ok: boolean; message?: string }> {
+    try {
+      const res = await fetch(`/api/admin/guides/${row.id}/autofill`, { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) return { ok: false, message: data.message || "자동채우기 실패" };
+      if (data.updated && Object.keys(data.updated).length) {
+        setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...data.updated } : r)));
+      }
+      return { ok: true, message: data.message };
+    } catch {
+      return { ok: false, message: "자동채우기 중 오류가 발생했습니다" };
+    }
+  }
+
+  async function autofillAll() {
+    const targets = filtered.filter((r) => r.product_url);
+    if (!targets.length) {
+      alert("제품링크가 있는 항목이 없습니다");
+      return;
+    }
+    if (!confirm(`제품링크가 있는 ${targets.length}건을 순서대로 자동채우기 할까요?`)) return;
+    setAutofillingAll(true);
+    let success = 0;
+    let failed = 0;
+    try {
+      for (const row of targets) {
+        setAutofillingId(row.id);
+        const result = await runAutofill(row);
+        if (result.ok) success++;
+        else failed++;
+      }
+    } finally {
+      setAutofillingId(null);
+      setAutofillingAll(false);
+      alert(`✅ 자동채우기 완료: 성공 ${success}건${failed ? `, 실패 ${failed}건` : ""}`);
+    }
+  }
+
+  async function createRow(): Promise<GuideProduct | null> {
+    try {
       const res = await fetch("/api/admin/guides", { method: "POST" });
       const data = await res.json();
       if (!data.ok) {
         alert(data.message || "추가 실패");
-        return;
+        return null;
       }
-      setRows((prev) => [...prev, data.row]);
+      return data.row as GuideProduct;
     } catch {
       alert("추가 중 오류가 발생했습니다");
-    } finally {
-      setAdding(false);
+      return null;
     }
+  }
+
+  async function handlePasteCommand() {
+    if (!dragAnchor) return;
+    if (dragAnchor.field === "image_url" && selectedCells.size <= 1) {
+      const file = await readClipboardImageFile(`guide_${dragAnchor.id}`);
+      if (file) {
+        const row = filtered.find((r) => r.id === dragAnchor.id);
+        if (row) await pasteImageToRow(row);
+        return;
+      }
+    }
+    const text = await navigator.clipboard.readText();
+    pasteGrid(text);
+  }
+
+  async function pasteImageToRow(row: GuideProduct) {
+    const file = await readClipboardImageFile(`guide_${row.id}`);
+    if (!file) return;
+    setSavingId(row.id);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const res = await fetch(`/api/admin/guides/${row.id}/image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageDataUrl: dataUrl }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.message || "이미지 업로드 실패");
+        return;
+      }
+      undoStack.current.push([{ id: row.id, field: "image_url", prevValue: row.image_url }]);
+      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, image_url: data.url } : r)));
+    } catch {
+      alert("이미지 업로드 중 오류가 발생했습니다");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function pasteGrid(text: string) {
+    if (!dragAnchor) return;
+    const lines = text.replace(/\r/g, "").split("\n");
+    while (lines.length && lines[lines.length - 1] === "") lines.pop();
+    const grid = lines.map((line) => line.split("\t"));
+    if (!grid.length) return;
+    const startRow = filtered.findIndex((r) => r.id === dragAnchor.id);
+    const startCol = colKeys.indexOf(dragAnchor.field);
+    if (startRow === -1 || startCol === -1) return;
+    const localRows = filtered.slice();
+    const batch: UndoEntry[] = [];
+    for (let ri = 0; ri < grid.length; ri++) {
+      let targetRow = localRows[startRow + ri];
+      if (!targetRow) {
+        const row = await createRow();
+        if (!row) break;
+        targetRow = row;
+        localRows.push(row);
+        setRows((prev) => [...prev, row]);
+      }
+      for (let ci = 0; ci < grid[ri].length; ci++) {
+        const field = colKeys[startCol + ci];
+        if (!field || !clearableField(field)) continue;
+        const raw = grid[ri][ci].trim();
+        const value = raw === "" ? null : field === "price" ? Number(raw) : raw;
+        batch.push({ id: targetRow.id, field, prevValue: targetRow[field] as string | number | boolean | null });
+        saveField(targetRow.id, field, value, false);
+      }
+    }
+    if (batch.length) undoStack.current.push(batch);
   }
 
   async function deleteRow(id: string) {
@@ -306,6 +556,20 @@ export default function AdminGuideTable({
           onChange={(e) => setQ(e.target.value)}
         />
         <button
+          className="text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
+          onClick={autofillAll}
+          disabled={autofillingAll || autofillingId !== null}
+        >
+          {autofillingAll ? "채우는 중..." : "🔗 전체 자동채우기"}
+        </button>
+        <button
+          className="text-xs bg-amber-600 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
+          onClick={refreshPaybackDates}
+          disabled={refreshingPayback}
+        >
+          {refreshingPayback ? "변경 중..." : `💳 페이백명 오늘 날짜로 (${todayMMDD()})`}
+        </button>
+        <button
           className="text-xs bg-neutral-800 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
           onClick={addRow}
           disabled={adding}
@@ -323,9 +587,10 @@ export default function AdminGuideTable({
       <div className="border border-neutral-300 rounded-xl overflow-auto flex-1">
         <table
           className="text-xs border-collapse"
-          style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 70 + 36) }}
+          style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 70 + 36 + 36) }}
         >
           <colgroup>
+            <col style={{ width: 36 }} />
             {COLUMNS.map((c) => (
               <col key={c.key} style={{ width: widths[c.key] }} />
             ))}
@@ -334,6 +599,7 @@ export default function AdminGuideTable({
           </colgroup>
           <thead className="sticky top-0 bg-neutral-800 text-white z-10">
             <tr>
+              <th className="px-1 py-2 text-center border-r border-neutral-700"></th>
               {COLUMNS.map((c) => (
                 <th
                   key={c.key}
@@ -351,22 +617,47 @@ export default function AdminGuideTable({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {filtered.map((r, ri) => (
               <tr key={r.id} className="border-b border-neutral-200">
+                <td
+                  className="px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 cursor-pointer hover:bg-neutral-200 select-none"
+                  onClick={() => selectWholeRow(r)}
+                >
+                  {ri + 1}
+                </td>
                 {COLUMNS.map((c) => {
                   if (c.kind === "toggle") {
                     const on = !!r[c.key];
                     return (
+                      <td
+                        key={c.key}
+                        className={`px-2 py-1.5 border-r border-b border-neutral-300 text-center overflow-hidden cursor-pointer font-bold text-xs ${
+                          on ? "bg-emerald-400 text-white" : "bg-neutral-50 text-neutral-400"
+                        }`}
+                        onClick={() => toggleBool(r, c.key as "active")}
+                      >
+                        {savingId === r.id ? "..." : on ? "예" : "아니오"}
+                      </td>
+                    );
+                  }
+                  if (c.kind === "select") {
+                    const options = SELECT_OPTIONS[c.key] || [];
+                    const val = (r[c.key] as string) ?? "";
+                    return (
                       <td key={c.key} className="px-2 py-1.5 border-r border-neutral-200 text-center overflow-hidden">
-                        <button
-                          className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                            on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
-                          }`}
-                          onClick={() => toggleBool(r, c.key as "active")}
+                        <select
+                          className="w-full border border-neutral-300 rounded px-1 py-0.5 text-xs outline-none text-center bg-white"
+                          value={val}
+                          onChange={(e) => saveField(r.id, c.key, e.target.value || null)}
                           disabled={savingId === r.id}
                         >
-                          {on ? "예" : "아니오"}
-                        </button>
+                          <option value="">-</option>
+                          {options.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                     );
                   }
@@ -377,9 +668,11 @@ export default function AdminGuideTable({
                   return (
                     <td
                       key={c.key}
-                      className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis select-none"
+                      className={`px-2 py-1.5 border-r border-neutral-200 text-center cursor-text hover:bg-black/5 select-none ${
+                        c.key === "note" ? "whitespace-pre-line" : "whitespace-nowrap overflow-hidden text-ellipsis"
+                      }`}
                       style={{ boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined }}
-                      onClick={() => !isEditing && startEdit(r, c.key)}
+                      onDoubleClick={() => !isEditing && startEdit(r, c.key)}
                       onMouseDown={() => startDrag(r, c.key)}
                       onMouseEnter={() => {
                         setHoverCell({ id: r.id, field: c.key });
@@ -388,7 +681,19 @@ export default function AdminGuideTable({
                       onMouseLeave={() => setHoverCell((h) => (h && h.id === r.id && h.field === c.key ? null : h))}
                       title={typeof val === "string" ? val : undefined}
                     >
-                      {isEditing ? (
+                      {isEditing && c.key === "note" ? (
+                        <textarea
+                          autoFocus
+                          rows={3}
+                          className="w-full min-w-[120px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-left resize-y"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={commitEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") cancelEdit();
+                          }}
+                        />
+                      ) : isEditing ? (
                         <input
                           autoFocus
                           className="w-full min-w-[36px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
@@ -425,13 +730,11 @@ export default function AdminGuideTable({
                     </td>
                   );
                 })}
-                <td className="px-2 py-1.5 border-r border-neutral-200 text-center">
-                  <button
-                    className="bg-rose-500 text-white text-[11px] font-bold rounded-full px-2 py-0.5"
-                    onClick={() => setGuideRow(r)}
-                  >
-                    🌷 생성
-                  </button>
+                <td
+                  className="px-2 py-1.5 border-r border-neutral-200 text-center cursor-pointer bg-rose-500 text-white font-bold text-xs"
+                  onClick={() => setGuideRow(r)}
+                >
+                  생성
                 </td>
                 <td className="px-2 py-1.5">
                   <button

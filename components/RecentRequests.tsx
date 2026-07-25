@@ -87,7 +87,7 @@ export default function RecentRequests({
               </div>
             </div>
             <button
-              className="shrink-0 text-[11px] font-bold text-emerald-700 border border-emerald-300 rounded px-2 py-1"
+              className="shrink-0 text-[11px] font-bold text-emerald-900 border border-emerald-800 rounded px-2 py-1"
               onClick={() =>
                 onReuse({
                   productUrl: r.product_url || "",

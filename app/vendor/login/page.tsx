@@ -23,7 +23,7 @@ export default function VendorLoginPage() {
   async function doLogin() {
     const id = loginId.trim();
     if (!id) {
-      setError("아이디(전화번호 또는 이메일)를 입력해주세요");
+      setError("아이디(전화번호)를 입력해주세요");
       return;
     }
     if (password.length < 4) {
@@ -63,7 +63,7 @@ export default function VendorLoginPage() {
             href="https://docs.google.com/document/d/1WwjhBng7zMI1GCiR0dTb2JUbqVlnCqAAkvgFXC0tZkA/edit?tab=t.0"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-1 text-center bg-white border border-emerald-200 rounded-xl py-2.5 text-sm font-bold text-emerald-700"
+            className="flex-1 text-center bg-white border border-emerald-800 rounded-xl py-2.5 text-sm font-bold text-emerald-900"
           >
             📋 진행안내
           </a>
@@ -71,40 +71,40 @@ export default function VendorLoginPage() {
             href="https://open.kakao.com/o/sCwvgAji"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-1 text-center bg-white border border-emerald-200 rounded-xl py-2.5 text-sm font-bold text-emerald-700"
+            className="flex-1 text-center bg-white border border-emerald-800 rounded-xl py-2.5 text-sm font-bold text-emerald-900"
           >
             💬 1:1 문의
           </a>
         </div>
         <TrustCounters />
-      <div className="w-full bg-white border-2 border-emerald-200 rounded-3xl p-6 shadow-lg shadow-emerald-100">
-        <div className="text-center text-2xl font-extrabold text-emerald-700 mb-1">🏢 업체 로그인</div>
+      <div className="w-full bg-white border-2 border-emerald-800 rounded-3xl p-6 shadow-lg shadow-emerald-800/10">
+        <div className="text-center text-2xl font-extrabold text-emerald-900 mb-1">🏢 업체 로그인</div>
         <div className="text-center text-sm text-neutral-500 mb-4">작업요청서 제출</div>
-        <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-neutral-500 leading-relaxed text-center mb-4">
-          아이디(전화번호/이메일)와 비밀번호를 입력해주세요
+        <div className="bg-emerald-800/5 border border-emerald-800/10 rounded-xl p-3 text-xs text-neutral-500 leading-relaxed text-center mb-4">
+          아이디(전화번호)와 비밀번호를 입력해주세요
           <br />
           처음이면 자동 가입됩니다 😊
         </div>
 
-        <label className="block text-sm font-bold text-emerald-700 mb-1">아이디</label>
+        <label className="block text-sm font-bold text-emerald-900 mb-1">아이디</label>
         <input
-          className="w-full border border-emerald-200 rounded-xl px-3 py-3 text-sm outline-none focus:border-emerald-500 mb-3"
-          placeholder="전화번호 또는 이메일"
+          className="w-full border border-emerald-800 rounded-xl px-3 py-3 text-sm outline-none focus:border-emerald-800/50 mb-3"
+          placeholder="전화번호"
           value={loginId}
           onChange={(e) => setLoginId(formatPhoneLive(e.target.value))}
           onKeyDown={(e) => e.key === "Enter" && doLogin()}
         />
-        <label className="block text-sm font-bold text-emerald-700 mb-1">비밀번호 (영문/숫자/특수문자, 4자 이상)</label>
+        <label className="block text-sm font-bold text-emerald-900 mb-1">비밀번호 (영문/숫자/특수문자, 4자 이상)</label>
         <input
           type="password"
-          className="w-full border border-emerald-200 rounded-xl px-3 py-3 text-sm outline-none focus:border-emerald-500"
+          className="w-full border border-emerald-800 rounded-xl px-3 py-3 text-sm outline-none focus:border-emerald-800/50"
           value={password}
           onChange={(e) => setPassword(sanitizePasswordInput(e.target.value))}
           onKeyDown={(e) => e.key === "Enter" && doLogin()}
         />
 
         <button
-          className="w-full mt-4 bg-emerald-600 text-white font-extrabold rounded-xl py-3 disabled:opacity-60"
+          className="w-full mt-4 bg-emerald-900 text-white font-extrabold rounded-xl py-3 disabled:opacity-60"
           onClick={doLogin}
           disabled={loading}
         >

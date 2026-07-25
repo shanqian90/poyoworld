@@ -13,7 +13,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("work_requests")
-    .select("receipt_no, company_code, company_name, status, issue_date, total_count")
+    .select("receipt_no, company_code, company_name, status, issue_date, total_count, tax_bill")
     .ilike("status", "%접수%")
     .is("issue_date", null);
 
@@ -23,7 +23,15 @@ export async function GET() {
 
   const grouped = new Map<
     string,
-    { writeDate: string; companyCode: string; companyName: string; display: string; itemCount: number; totalQty: number }
+    {
+      writeDate: string;
+      companyCode: string;
+      companyName: string;
+      display: string;
+      itemCount: number;
+      totalQty: number;
+      taxBill: boolean;
+    }
   >();
   (data || []).forEach((r) => {
     const writeDate = extractMmddFromReceipt(r.receipt_no);
@@ -35,7 +43,7 @@ export async function GET() {
       grouped.set(key, {
         writeDate, companyCode, companyName,
         display: [writeDate, companyCode, companyName].filter(Boolean).join("  "),
-        itemCount: 0, totalQty: 0,
+        itemCount: 0, totalQty: 0, taxBill: !!r.tax_bill,
       });
     }
     const g = grouped.get(key)!;

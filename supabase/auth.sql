@@ -83,3 +83,63 @@ $$;
 
 grant execute on function auth_login(text, text) to anon, authenticated;
 grant execute on function seed_legacy_kakao_id(text) to anon, authenticated;
+
+-- ── 본인이 직접 비밀번호 변경 (기존 비밀번호 확인 후 변경) ──
+create or replace function auth_change_password(p_kakao_id text, p_old_password text, p_new_password text)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_row users%rowtype;
+begin
+  if p_kakao_id is null or trim(p_kakao_id) = '' then
+    raise exception '아이디를 입력해주세요';
+  end if;
+  if p_new_password is null or length(p_new_password) < 4 then
+    raise exception '새 비밀번호는 4자 이상 입력해주세요';
+  end if;
+
+  select * into v_row from users where lower(kakao_id) = lower(p_kakao_id) limit 1;
+  if v_row.id is null then
+    raise exception '계정을 찾을 수 없습니다';
+  end if;
+
+  if v_row.password_hash is not null then
+    if p_old_password is null or crypt(p_old_password, v_row.password_hash) <> v_row.password_hash then
+      raise exception '현재 비밀번호가 일치하지 않습니다';
+    end if;
+  end if;
+
+  update users set password_hash = crypt(p_new_password, gen_salt('bf')) where id = v_row.id;
+  return json_build_object('ok', true);
+end;
+$$;
+
+grant execute on function auth_change_password(text, text, text) to anon, authenticated;
+
+-- ── 관리자 대리 로그인: 이미 존재하는 아이디인지만 확인 (비밀번호 검증은 Next.js 쪽에서 관리자 비밀번호로 처리) ──
+create or replace function auth_login_as(p_kakao_id text)
+returns json
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_row users%rowtype;
+begin
+  if p_kakao_id is null or trim(p_kakao_id) = '' then
+    raise exception '카카오톡 아이디를 입력해주세요';
+  end if;
+
+  select * into v_row from users where lower(kakao_id) = lower(p_kakao_id) limit 1;
+  if v_row.id is null then
+    raise exception '존재하지 않는 아이디입니다';
+  end if;
+
+  return json_build_object('ok', true, 'mode', 'admin_override');
+end;
+$$;
+
+grant execute on function auth_login_as(text) to anon, authenticated;

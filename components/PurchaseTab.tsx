@@ -38,11 +38,35 @@ export default function PurchaseTab({
   const [submittedList, setSubmittedList] = useState<
     { store: string; orderNo: string; images: string[] }[]
   >([]);
+  const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
 
   useEffect(() => {
     if (dateText === todayMMDD()) setSlotMap(todayMap);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [todayMap]);
+
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      if (!activeAccountId) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            onFileInput(activeAccountId, [file]);
+          }
+          break;
+        }
+      }
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAccountId, accState]);
 
   async function loadSlots(date: string) {
     if (!/^\d{4}$/.test(date)) {
@@ -91,7 +115,9 @@ export default function PurchaseTab({
   function toggleAccount(id: string) {
     setAccState((prev) => {
       const cur = prev[id] || { checked: false, orderNo: "", files: [] };
-      return { ...prev, [id]: { ...cur, checked: !cur.checked } };
+      const next = !cur.checked;
+      if (next) setActiveAccountId(id);
+      return { ...prev, [id]: { ...cur, checked: next } };
     });
   }
 
@@ -111,9 +137,9 @@ export default function PurchaseTab({
 
   const [extracting, setExtracting] = useState<Record<string, boolean>>({});
 
-  async function onFileInput(id: string, fileList: FileList | null) {
+  async function onFileInput(id: string, files: File[]) {
     const existing = accState[id]?.files || [];
-    const added = Array.from(fileList || []);
+    const added = files;
     const next = existing.concat(added);
     setFiles(id, next);
 
@@ -189,14 +215,24 @@ export default function PurchaseTab({
         setStatus({ type: "err", text: data.message || "제출 실패" });
         return;
       }
-      setStatus({
-        type: "ok",
-        text: `🌸 제출완료 🌸\n총 ${data.count}건이 정상 저장되었습니다\n주문번호\n${orderNos.join("\n")}`,
-      });
-      type SubmitResult = { orderNo: string; ok: boolean; images?: string[] };
-      const resultByOrderNo = new Map<string, SubmitResult>(
-        (data.results || []).map((r: SubmitResult) => [r.orderNo, r])
-      );
+      type SubmitResult = { orderNo: string; ok: boolean; message?: string; images?: string[] };
+      const results: SubmitResult[] = data.results || [];
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length) {
+        setStatus({
+          type: "err",
+          text: `⚠️ 일부 저장 실패\n${failed.map((f) => `${f.orderNo}: ${f.message || "실패"}`).join("\n")}`,
+        });
+      } else {
+        const orderNoBuyerLines = checkedAccounts.map(
+          (acc) => `${accState[acc.id].orderNo.trim()} ${acc.buyer}`
+        );
+        setStatus({
+          type: "ok",
+          text: `🌸 제출완료 🌸\n총 ${data.count}건이 정상 저장되었습니다\n${orderNoBuyerLines.join("\n")}`,
+        });
+      }
+      const resultByOrderNo = new Map<string, SubmitResult>(results.map((r) => [r.orderNo, r]));
       setSubmittedList(
         checkedAccounts.map((acc) => ({
           store: acc.store,
@@ -228,19 +264,9 @@ export default function PurchaseTab({
         <>
           <div className="mb-3">
             <label className="block text-sm font-bold mb-1">📅 구매일</label>
-            <input
-              className="w-full border border-rose-200 rounded-xl px-3 py-2 text-sm"
-              placeholder="예: 0724"
-              maxLength={4}
-              value={dateText}
-              onChange={(e) => {
-                const v = e.target.value.replace(/[^0-9]/g, "");
-                setDateText(v);
-                loadSlots(v);
-                setProductName("");
-                setOptionNo("");
-              }}
-            />
+            <div className="w-full border border-rose-200 rounded-xl px-3 py-2 text-sm bg-neutral-50 text-neutral-600 font-bold">
+              {dateText.slice(0, 2)}/{dateText.slice(2)} (오늘)
+            </div>
           </div>
           <div className="mb-3">
             <label className="block text-sm font-bold mb-1">🛍️ 제품명</label>
@@ -272,7 +298,7 @@ export default function PurchaseTab({
               <option value="">옵션 선택</option>
               {options.map((o) => (
                 <option key={o.value} value={o.value}>
-                  {o.label} (남은 {o.remaining}건)
+                  {o.label} ({o.total - o.remaining}/{o.total})
                 </option>
               ))}
             </select>
@@ -323,15 +349,40 @@ export default function PurchaseTab({
                     >
                       {st.checked ? "✓" : ""}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="text-sm font-extrabold">{acc.store}</div>
                       <div className="text-[11px] text-neutral-500 truncate">
                         {acc.buyer} · {acc.user_id} · {acc.phone}
                       </div>
                     </div>
+                    <a
+                      href="/accounts"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="shrink-0 text-[11px] font-bold text-blue-600 bg-blue-50 rounded-lg px-2 py-1"
+                    >
+                      ✏️ 수정
+                    </a>
                   </div>
                   {st.checked && (
-                    <div className="px-3 pb-3 pt-1 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                    <div
+                      className="px-3 pb-3 pt-1 flex flex-col gap-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveAccountId(acc.id);
+                      }}
+                    >
+                      <div className="bg-rose-50/60 border border-rose-100 rounded-lg px-3 py-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                        <div><span className="text-neutral-400">구매자</span> {acc.buyer || "-"}</div>
+                        <div><span className="text-neutral-400">수취인</span> {acc.receiver || "-"}</div>
+                        <div><span className="text-neutral-400">아이디</span> {acc.user_id || "-"}</div>
+                        <div><span className="text-neutral-400">전화번호</span> {acc.phone || "-"}</div>
+                        <div className="col-span-2"><span className="text-neutral-400">주소</span> {acc.address || "-"}</div>
+                        <div className="col-span-2">
+                          <span className="text-neutral-400">계좌</span> {acc.bank} {acc.account_no} {acc.holder}
+                        </div>
+                      </div>
                       <div className="relative">
                         <input
                           className="w-full border border-rose-200 rounded-lg px-3 py-2 text-sm disabled:bg-neutral-50 disabled:text-neutral-400"
@@ -348,12 +399,13 @@ export default function PurchaseTab({
                       </div>
                       <label className="border-2 border-dashed border-rose-300 rounded-lg px-3 py-3 text-center text-xs font-bold text-rose-500 cursor-pointer bg-rose-50">
                         📎 주문상세 이미지 첨부 (최대 2장)
+                        <div className="text-[10px] font-normal text-rose-400 mt-0.5">클릭한 뒤 Ctrl+V로 클립보드 이미지도 붙여넣을 수 있어요</div>
                         <input
                           type="file"
                           accept="image/*"
                           multiple
                           className="hidden"
-                          onChange={(e) => onFileInput(acc.id, e.target.files)}
+                          onChange={(e) => onFileInput(acc.id, Array.from(e.target.files || []))}
                         />
                       </label>
                       {st.files.length > 0 && (
@@ -392,7 +444,7 @@ export default function PurchaseTab({
 
       {status.text && (
         <div
-          className={`mt-3 rounded-xl px-3 py-3 text-sm whitespace-pre-line font-bold ${
+          className={`mt-3 rounded-xl px-3 py-3 text-sm whitespace-pre-line font-bold text-center ${
             status.type === "ok"
               ? "bg-green-50 border border-green-300 text-green-800"
               : status.type === "err"

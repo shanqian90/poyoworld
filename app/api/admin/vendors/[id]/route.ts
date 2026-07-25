@@ -16,6 +16,7 @@ const EDITABLE_FIELDS = new Set([
 ]);
 
 const NUMBER_FIELDS = new Set(["real_ship_price", "empty_box_price"]);
+const NOT_NULL_TEXT_FIELDS = new Set(["login_id", "company_name"]);
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const cookieStore = await cookies();
@@ -32,7 +33,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   let value = body.value;
-  if (value === "") value = null;
+  if (value === "") value = NOT_NULL_TEXT_FIELDS.has(field) ? "" : null;
   if (value !== null && NUMBER_FIELDS.has(field)) value = Number(value);
 
   const { error } = await supabase

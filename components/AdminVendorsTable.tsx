@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { Vendor } from "@/lib/types";
+import { supabase } from "@/lib/supabase";
+import { codeNameSegment } from "@/lib/storage";
 
 type Field = keyof Vendor;
 
@@ -11,7 +13,7 @@ const COLUMNS: { key: Field; label: string; align?: "right"; defaultWidth: numbe
   { key: "company_name", label: "업체명", defaultWidth: 140 },
   { key: "biz_no", label: "사업자번호", defaultWidth: 110 },
   { key: "owner_name", label: "대표자명", defaultWidth: 90 },
-  { key: "login_id", label: "아이디(전화/이메일)", defaultWidth: 140 },
+  { key: "login_id", label: "아이디(전화번호)", defaultWidth: 140 },
   { key: "email", label: "이메일", defaultWidth: 160 },
   { key: "real_ship_price", label: "실배송 단가", align: "right", defaultWidth: 90 },
   { key: "empty_box_price", label: "빈박스 단가", align: "right", defaultWidth: 90 },
@@ -30,10 +32,13 @@ export default function AdminVendorsTable({
 }) {
   const [rows, setRows] = useState(initialRows);
   const [q, setQ] = useState("");
+  const [sortKey, setSortKey] = useState<Field>("company_code");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [editing, setEditing] = useState<{ id: string; field: Field } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [uploadingBizId, setUploadingBizId] = useState<string | null>(null);
   const [hoverCell, setHoverCell] = useState<{ id: string; field: Field } | null>(null);
   const [widths, setWidths] = useState<Record<string, number>>(() =>
     Object.fromEntries(COLUMNS.map((c) => [c.key, c.defaultWidth]))
@@ -44,9 +49,68 @@ export default function AdminVendorsTable({
   const cellKey = (id: string, field: Field) => `${id}:${field}`;
   const colKeys = COLUMNS.map((c) => c.key);
   const clearableField = (f: Field) => !LINK_FIELDS.has(f);
+  type UndoEntry = { id: string; field: Field; prevValue: string | number | null };
+  const undoStack = useRef<UndoEntry[][]>([]);
+
+  function undo() {
+    const batch = undoStack.current.pop();
+    if (!batch) return;
+    batch.forEach((entry) => saveField(entry.id, entry.field, entry.prevValue, false));
+  }
+
+  function fillDown() {
+    const bounds = selectionBounds();
+    if (!bounds) return;
+    const batch: UndoEntry[] = [];
+    for (let ci = bounds.colLo; ci <= bounds.colHi; ci++) {
+      const field = colKeys[ci];
+      if (!clearableField(field)) continue;
+      const topRow = filtered[bounds.rowLo];
+      if (!topRow) continue;
+      const value = topRow[field] as string | number | null;
+      for (let ri = bounds.rowLo + 1; ri <= bounds.rowHi; ri++) {
+        const row = filtered[ri];
+        if (!row) continue;
+        batch.push({ id: row.id, field, prevValue: row[field] as string | number | null });
+        saveField(row.id, field, value, false);
+      }
+    }
+    if (batch.length) undoStack.current.push(batch);
+  }
+
+  const focusRef = useRef<{ id: string; field: Field } | null>(null);
+
+  function moveSelection(dRow: number, dCol: number, extend = false) {
+    const from = focusRef.current || dragAnchor;
+    if (!from) return;
+    const ri = filtered.findIndex((r) => r.id === from.id);
+    const ci = colKeys.indexOf(from.field);
+    if (ri === -1 || ci === -1) return;
+    const nextRi = Math.min(Math.max(ri + dRow, 0), filtered.length - 1);
+    const nextCi = Math.min(Math.max(ci + dCol, 0), colKeys.length - 1);
+    const row = filtered[nextRi];
+    if (!row) return;
+    const field = colKeys[nextCi];
+    focusRef.current = { id: row.id, field };
+    if (extend && dragAnchor) {
+      const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
+      const colA = colKeys.indexOf(dragAnchor.field);
+      const [rowLo, rowHi] = rowA <= nextRi ? [rowA, nextRi] : [nextRi, rowA];
+      const [colLo, colHi] = colA <= nextCi ? [colA, nextCi] : [nextCi, colA];
+      const next = new Set<string>();
+      for (let r2 = rowLo; r2 <= rowHi; r2++) {
+        for (let c2 = colLo; c2 <= colHi; c2++) next.add(cellKey(filtered[r2].id, colKeys[c2]));
+      }
+      setSelectedCells(next);
+    } else {
+      setDragAnchor({ id: row.id, field });
+      setSelectedCells(new Set([cellKey(row.id, field)]));
+    }
+  }
 
   function startDrag(row: Vendor, field: Field) {
     setDragAnchor({ id: row.id, field });
+    focusRef.current = { id: row.id, field };
     setIsDragging(true);
     setSelectedCells(new Set([cellKey(row.id, field)]));
   }
@@ -114,36 +178,63 @@ export default function AdminVendorsTable({
 
       if ((e.key === "v" || e.key === "V") && (e.ctrlKey || e.metaKey) && !inInput && dragAnchor) {
         e.preventDefault();
-        navigator.clipboard.readText().then((text) => {
-          const grid = text.replace(/\r/g, "").split("\n").map((line) => line.split("\t"));
-          const startRow = filtered.findIndex((r) => r.id === dragAnchor.id);
-          const startCol = colKeys.indexOf(dragAnchor.field);
-          if (startRow === -1 || startCol === -1) return;
-          for (let ri = 0; ri < grid.length; ri++) {
-            const targetRow = filtered[startRow + ri];
-            if (!targetRow) break;
-            for (let ci = 0; ci < grid[ri].length; ci++) {
-              const field = colKeys[startCol + ci];
-              if (!field || !clearableField(field)) continue;
-              const raw = grid[ri][ci].trim();
-              const value = raw === "" ? null : NUMBER_FIELDS.has(field) ? Number(raw) : raw;
-              saveField(targetRow.id, field, value);
-            }
-          }
-        });
+        navigator.clipboard.readText().then((text) => pasteGrid(text));
         return;
+      }
+
+      if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !inInput) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+
+      if ((e.key === "d" || e.key === "D") && (e.ctrlKey || e.metaKey) && !inInput && selectedCells.size > 1) {
+        e.preventDefault();
+        fillDown();
+        return;
+      }
+
+      if (!editing && !inInput && dragAnchor && !e.ctrlKey && !e.metaKey) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const row = filtered.find((r) => r.id === dragAnchor.id);
+          if (row && !LINK_FIELDS.has(dragAnchor.field)) startEdit(row, dragAnchor.field);
+          return;
+        }
+        if (e.key === "Escape") {
+          setSelectedCells(new Set());
+          return;
+        }
+        if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault();
+          const dRow = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+          const dCol = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+          moveSelection(dRow, dCol, e.shiftKey);
+          return;
+        }
+        if (e.key === "Tab") {
+          e.preventDefault();
+          moveSelection(0, e.shiftKey ? -1 : 1);
+          return;
+        }
       }
 
       if (editing) return;
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       if (inInput) return;
       if (selectedCells.size > 1) {
+        const batch: UndoEntry[] = [];
         selectedCells.forEach((key) => {
           const idx = key.lastIndexOf(":");
           const id = key.slice(0, idx);
           const field = key.slice(idx + 1) as Field;
-          if (clearableField(field)) saveField(id, field, null);
+          if (!clearableField(field)) return;
+          const current = rows.find((r) => r.id === id);
+          if (!current) return;
+          batch.push({ id, field, prevValue: current[field] as string | number | null });
+          saveField(id, field, null, false);
         });
+        if (batch.length) undoStack.current.push(batch);
         return;
       }
       if (!hoverCell) return;
@@ -172,15 +263,45 @@ export default function AdminVendorsTable({
     window.addEventListener("mouseup", onUp);
   }
 
+  function selectWholeRow(row: Vendor) {
+    setDragAnchor({ id: row.id, field: colKeys[0] });
+    setSelectedCells(new Set(colKeys.map((k) => cellKey(row.id, k))));
+  }
+
+  function toggleSort(key: Field) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
-    if (!query) return rows;
-    return rows.filter((r) =>
-      [r.company_name, r.company_code, r.biz_no, r.owner_name, r.login_id, r.email].join(" ").toLowerCase().includes(query)
-    );
-  }, [rows, q]);
+    let list = rows;
+    if (query) {
+      list = list.filter((r) =>
+        [r.company_name, r.company_code, r.biz_no, r.owner_name, r.login_id, r.email].join(" ").toLowerCase().includes(query)
+      );
+    }
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...list].sort((a, b) => {
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (NUMBER_FIELDS.has(sortKey)) return (Number(av) - Number(bv)) * dir;
+      return String(av).localeCompare(String(bv), "ko") * dir;
+    });
+  }, [rows, q, sortKey, sortDir]);
 
-  async function saveField(id: string, field: Field, value: string | number | null) {
+  async function saveField(id: string, field: Field, value: string | number | null, pushUndo = true) {
+    if (pushUndo) {
+      const current = rows.find((r) => r.id === id);
+      if (current) undoStack.current.push([{ id, field, prevValue: current[field] as string | number | null }]);
+    }
     setSavingId(id);
     try {
       const res = await fetch(`/api/admin/vendors/${id}`, {
@@ -233,17 +354,80 @@ export default function AdminVendorsTable({
   async function addRow() {
     setAdding(true);
     try {
+      const row = await createRow();
+      if (row) {
+        setRows((prev) => [...prev, row]);
+        setQ("");
+      }
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function createRow(): Promise<Vendor | null> {
+    try {
       const res = await fetch("/api/admin/vendors", { method: "POST" });
       const data = await res.json();
       if (!data.ok) {
         alert(data.message || "추가 실패");
-        return;
+        return null;
       }
-      setRows((prev) => [...prev, data.row]);
+      return data.row as Vendor;
     } catch {
       alert("추가 중 오류가 발생했습니다");
+      return null;
+    }
+  }
+
+  async function pasteGrid(text: string) {
+    if (!dragAnchor) return;
+    const lines = text.replace(/\r/g, "").split("\n");
+    while (lines.length && lines[lines.length - 1] === "") lines.pop();
+    const grid = lines.map((line) => line.split("\t"));
+    if (!grid.length) return;
+    const startRow = filtered.findIndex((r) => r.id === dragAnchor.id);
+    const startCol = colKeys.indexOf(dragAnchor.field);
+    if (startRow === -1 || startCol === -1) return;
+    const localRows = filtered.slice();
+    const batch: UndoEntry[] = [];
+    for (let ri = 0; ri < grid.length; ri++) {
+      let targetRow = localRows[startRow + ri];
+      if (!targetRow) {
+        const row = await createRow();
+        if (!row) break;
+        targetRow = row;
+        localRows.push(row);
+        setRows((prev) => [...prev, row]);
+      }
+      for (let ci = 0; ci < grid[ri].length; ci++) {
+        const field = colKeys[startCol + ci];
+        if (!field || !clearableField(field)) continue;
+        const raw = grid[ri][ci].trim();
+        const value = raw === "" ? null : NUMBER_FIELDS.has(field) ? Number(raw) : raw;
+        batch.push({ id: targetRow.id, field, prevValue: targetRow[field] as string | number | null });
+        saveField(targetRow.id, field, value, false);
+      }
+    }
+    if (batch.length) undoStack.current.push(batch);
+  }
+
+  async function uploadBizFile(row: Vendor, file: File) {
+    setUploadingBizId(row.id);
+    try {
+      const ext = file.name.split(".").pop() || "jpg";
+      const segment = codeNameSegment(row.company_code, row.company_name);
+      const path = `${segment}_bizreg_${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from("vendor-files")
+        .upload(path, file, { contentType: file.type, upsert: true });
+      if (upErr) {
+        alert("업로드 실패: " + upErr.message);
+        return;
+      }
+      const { data: urlData } = supabase.storage.from("vendor-files").getPublicUrl(path);
+      await saveField(row.id, "biz_file_url", urlData.publicUrl);
     } finally {
-      setAdding(false);
+      setUploadingBizId(null);
     }
   }
 
@@ -290,9 +474,10 @@ export default function AdminVendorsTable({
       <div className="border border-neutral-300 rounded-xl overflow-auto flex-1">
         <table
           className="text-xs border-collapse"
-          style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 36) }}
+          style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 36 + 36) }}
         >
           <colgroup>
+            <col style={{ width: 36 }} />
             {COLUMNS.map((c) => (
               <col key={c.key} style={{ width: widths[c.key] }} />
             ))}
@@ -300,12 +485,16 @@ export default function AdminVendorsTable({
           </colgroup>
           <thead className="sticky top-0 bg-neutral-800 text-white z-10">
             <tr>
+              <th className="px-1 py-2 text-center border-r border-neutral-700"></th>
               {COLUMNS.map((c) => (
                 <th
                   key={c.key}
-                  className="relative px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700 overflow-hidden"
+                  className="relative px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700 overflow-hidden cursor-pointer select-none"
+                  onClick={() => toggleSort(c.key)}
+                  title="클릭하여 정렬"
                 >
                   {c.label}
+                  {sortKey === c.key && <span className="ml-0.5">{sortDir === "asc" ? "▲" : "▼"}</span>}
                   <div
                     className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-rose-400/70"
                     onMouseDown={(e) => startResize(e, c.key)}
@@ -316,8 +505,14 @@ export default function AdminVendorsTable({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {filtered.map((r, ri) => (
               <tr key={r.id} className="border-b border-neutral-200">
+                <td
+                  className="px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 cursor-pointer hover:bg-neutral-200 select-none"
+                  onClick={() => selectWholeRow(r)}
+                >
+                  {ri + 1}
+                </td>
                 {COLUMNS.map((c) => {
                   const isEditing = editing?.id === r.id && editing.field === c.key;
                   const val = r[c.key];
@@ -328,7 +523,7 @@ export default function AdminVendorsTable({
                       key={c.key}
                       className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis select-none"
                       style={{ boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined }}
-                      onClick={() => !isEditing && !isLink && startEdit(r, c.key)}
+                      onDoubleClick={() => !isEditing && !isLink && startEdit(r, c.key)}
                       onMouseDown={() => startDrag(r, c.key)}
                       onMouseEnter={() => {
                         setHoverCell({ id: r.id, field: c.key });
@@ -366,6 +561,24 @@ export default function AdminVendorsTable({
                         >
                           보기
                         </a>
+                      ) : isLink ? (
+                        <label
+                          className="text-blue-600 underline cursor-pointer"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {uploadingBizId === r.id ? "업로드중..." : "+ 추가"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            disabled={uploadingBizId === r.id}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) uploadBizFile(r, file);
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
                       ) : c.align === "right" ? (
                         val != null ? Number(val).toLocaleString("ko-KR") : ""
                       ) : (
@@ -388,7 +601,7 @@ export default function AdminVendorsTable({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length + 1} className="text-center text-neutral-400 py-8">
+                <td colSpan={COLUMNS.length + 2} className="text-center text-neutral-400 py-8">
                   업체가 없습니다
                 </td>
               </tr>

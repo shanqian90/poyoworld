@@ -13,6 +13,13 @@ export async function POST(req: NextRequest) {
     const block = await checkBlocked(supabase, { kakaoId });
     if (block.blocked) return fail(block.reason || "차단되었습니다", 403);
 
+    const adminPassword = process.env.ADMIN_PASSWORD || "";
+    if (adminPassword && password === adminPassword) {
+      const { data, error } = await supabase.rpc("auth_login_as", { p_kakao_id: kakaoId });
+      if (error) return fail(error.message, 401);
+      return NextResponse.json({ ok: true, mode: (data as { mode?: string })?.mode });
+    }
+
     const { data, error } = await supabase.rpc("auth_login", {
       p_kakao_id: kakaoId,
       p_password: password,

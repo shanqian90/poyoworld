@@ -149,21 +149,26 @@ export default function WorkRequestForm({
   }
 
   return (
-    <div className="border-t border-emerald-100 pt-3">
-      <div className="text-sm font-extrabold text-emerald-800 mb-2">진행 옵션</div>
-      <div className="grid grid-cols-2 gap-2 mb-4">
+    <div className="border-t border-emerald-800/10 pt-3">
+      <div className="text-sm font-extrabold text-emerald-950 mb-2">진행 옵션</div>
+      <div className="flex flex-col gap-2 mb-4">
         <OptionToggle label="제품 실제배송" value={options.realShip} onChange={(v) => setOptions({ ...options, realShip: v })} />
-        <OptionToggle label="입금대행" value={options.payAgent} onChange={(v) => setOptions({ ...options, payAgent: v })} />
+        <OptionToggle label="입금대행 (무료서비스)" value={options.payAgent} onChange={(v) => setOptions({ ...options, payAgent: v })} />
         <OptionToggle label="택배대행 (2,500원/건)" value={options.shipAgent} onChange={(v) => setOptions({ ...options, shipAgent: v })} />
         <OptionToggle label="주말 진행" value={options.weekend} onChange={(v) => setOptions({ ...options, weekend: v })} />
         <OptionToggle label="세금계산서 발행" value={options.taxBill} onChange={(v) => setOptions({ ...options, taxBill: v })} />
       </div>
+      <div className="text-[11px] text-neutral-400 -mt-3 mb-4 leading-relaxed">
+        * 주말 진행은 월 100건 미만인 경우 건당 +1,000원이 추가됩니다
+        <br />
+        * 100건 이상 진행 시 실배송단가 2,500원, 빈박스단가 3,000원으로 자동 할인 계산됩니다
+      </div>
 
-      <div className="text-sm font-extrabold text-emerald-800 mb-2">진행 제품</div>
+      <div className="text-sm font-extrabold text-emerald-950 mb-2">진행 제품</div>
       <div className="flex flex-col gap-3 mb-3">
         {products.map((p, idx) => (
-          <div key={p.id} className="border border-emerald-200 rounded-xl p-3 relative bg-emerald-50/30">
-            <div className="text-xs font-bold text-emerald-700 mb-2">제품 {idx + 1}</div>
+          <div key={p.id} className="border border-emerald-800 rounded-xl p-3 relative bg-emerald-800/5">
+            <div className="text-xs font-bold text-emerald-900 mb-2">제품 {idx + 1}</div>
             {products.length > 1 && (
               <button
                 className="absolute top-2 right-2 text-[11px] bg-rose-50 text-rose-600 font-bold rounded px-2 py-0.5"
@@ -202,7 +207,7 @@ export default function WorkRequestForm({
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <Field label="총진행건수">
+              <Field label="총 진행할 체험단 수량">
                 <input type="number" className="input" value={p.total} onChange={(e) => updateProduct(p.id, { total: e.target.value })} />
               </Field>
               <Field label="일진행건수 (예: 3 또는 1/2/1)">
@@ -213,13 +218,13 @@ export default function WorkRequestForm({
         ))}
       </div>
 
-      <button className="text-xs text-emerald-700 underline mb-4" onClick={addProduct}>
+      <button className="text-xs text-emerald-900 underline mb-4" onClick={addProduct}>
         + 제품 추가
       </button>
 
-      <div className="bg-emerald-50 border border-emerald-300 rounded-xl px-3 py-3 mb-4">
+      <div className="bg-emerald-800/5 border border-emerald-300 rounded-xl px-3 py-3 mb-4">
         <div className="text-xs font-bold text-neutral-500">💰 예상 금액 (간이 계산)</div>
-        <div className="text-xl font-extrabold text-emerald-700">{estimate.total.toLocaleString("ko-KR")}원</div>
+        <div className="text-xl font-extrabold text-emerald-900">{estimate.total.toLocaleString("ko-KR")}원</div>
         <div className="text-[11px] text-neutral-500 mt-1">
           진행비 {estimate.workTotal.toLocaleString("ko-KR")}원
           {options.shipAgent === "Y" && ` + 택배대행 ${estimate.deliveryTotal.toLocaleString("ko-KR")}원`}
@@ -228,7 +233,7 @@ export default function WorkRequestForm({
       </div>
 
       <button
-        className="w-full bg-emerald-600 text-white font-extrabold rounded-xl py-3 disabled:opacity-60"
+        className="w-full bg-emerald-900 text-white font-extrabold rounded-xl py-3 disabled:opacity-60"
         onClick={submit}
         disabled={submitting}
       >
@@ -269,17 +274,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function OptionToggle({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <div className="border border-emerald-200 rounded-lg px-2.5 py-2 flex items-center justify-between gap-2 bg-white">
-      <span className="text-[11px] font-bold text-neutral-600">{label}</span>
-      <div className="flex gap-1">
+    <div className="border border-emerald-800 rounded-lg px-3 py-2.5 flex items-center justify-between gap-2 bg-white">
+      <span className="text-sm font-bold text-neutral-700">{label}</span>
+      <div className="flex gap-1.5 shrink-0">
         <button
-          className={`text-[11px] font-bold rounded px-2 py-0.5 ${value === "Y" ? "bg-emerald-600 text-white" : "bg-neutral-100 text-neutral-500"}`}
+          className={`text-xs font-bold rounded px-3 py-1 ${value === "Y" ? "bg-emerald-900 text-white" : "bg-neutral-100 text-neutral-500"}`}
           onClick={() => onChange("Y")}
         >
           예
         </button>
         <button
-          className={`text-[11px] font-bold rounded px-2 py-0.5 ${value === "N" ? "bg-neutral-600 text-white" : "bg-neutral-100 text-neutral-500"}`}
+          className={`text-xs font-bold rounded px-3 py-1 ${value === "N" ? "bg-neutral-600 text-white" : "bg-neutral-100 text-neutral-500"}`}
           onClick={() => onChange("N")}
         >
           아니오

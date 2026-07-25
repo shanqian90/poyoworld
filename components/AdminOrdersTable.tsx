@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { computeKFlags, computeAddressDupFlags, computeBatchCompleteFlags, K_FLAG_INFO, ADDRESS_DUP_COLOR, BATCH_COMPLETE_COLOR } from "@/lib/mainFlags";
+import { fileToDataUrl, readClipboardImageFile } from "@/lib/clipboardImage";
 
 export type AdminOrderRow = {
   id: number;
@@ -32,10 +33,13 @@ export type AdminOrderRow = {
   review_done: boolean;
   paid: boolean;
   paid_date: string | null;
-  company_paid: boolean;
+  company_paid: string | null;
   delivery: string | null;
   tracking: string | null;
   remark: string | null;
+  created_at: string;
+  hidden_from_active: boolean;
+  full_date: string | null;
   _group: "a" | "b" | null;
 };
 
@@ -46,11 +50,16 @@ function fmt(n: number | null) {
   return (n || 0).toLocaleString("ko-KR");
 }
 
+function formatPaidDate(value: string) {
+  const m = value.match(/^\d{4}-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${Number(m[1])}/${Number(m[2])}`;
+  return value;
+}
+
 const LINK_FIELDS = new Set<Field>(["product_url", "review_url", "order_image"]);
 const TOGGLE_LABELS: Partial<Record<Field, [string, string]>> = {
   review_done: ["완료", "미완료"],
   paid: ["완료", "대기"],
-  company_paid: ["완료", "대기"],
 };
 
 const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaultWidth: number }[] = [
@@ -79,7 +88,7 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
   { key: "review_done", label: "리뷰작성", kind: "toggle", defaultWidth: 70 },
   { key: "paid", label: "입금", kind: "toggle", defaultWidth: 70 },
   { key: "paid_date", label: "입금일", defaultWidth: 90 },
-  { key: "company_paid", label: "업체입금", kind: "toggle", defaultWidth: 70 },
+  { key: "company_paid", label: "업체입금(입금자명)", defaultWidth: 100 },
   { key: "delivery", label: "택배대행", defaultWidth: 90 },
   { key: "tracking", label: "운송장번호", defaultWidth: 110 },
 ];
@@ -89,9 +98,13 @@ const TOGGLE_KEYS = new Set<Field>(COLUMNS.filter((c) => c.kind === "toggle").ma
 export default function AdminOrdersTable({
   rows: initialRows,
   loadError,
+  mode = "full",
+  title = "📋 메인 전체보기",
 }: {
   rows: AdminOrderRow[];
   loadError: string | null;
+  mode?: "full" | "active";
+  title?: string;
 }) {
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
@@ -103,6 +116,10 @@ export default function AdminOrdersTable({
   const [widths, setWidths] = useState<Record<string, number>>(() =>
     Object.fromEntries(COLUMNS.map((c) => [c.key, c.defaultWidth]))
   );
+  const now = new Date();
+  const [bulkYear, setBulkYear] = useState(now.getFullYear());
+  const [bulkMonth, setBulkMonth] = useState(now.getMonth() + 1);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [pendingDeletes, setPendingDeletes] = useState<
     { row: AdminOrderRow; index: number; timer: ReturnType<typeof setTimeout> }[]
   >([]);
@@ -115,9 +132,68 @@ export default function AdminOrdersTable({
   const cellKey = (id: number, field: Field) => `${id}:${field}`;
   const clearableField = (f: Field) => !TOGGLE_KEYS.has(f) && !LINK_FIELDS.has(f) && f !== "seq";
   const colKeys = COLUMNS.map((c) => c.key);
+  type UndoEntry = { id: number; field: Field; prevValue: string | number | boolean | null };
+  const undoStack = useRef<UndoEntry[][]>([]);
+
+  function undo() {
+    const batch = undoStack.current.pop();
+    if (!batch) return;
+    batch.forEach((entry) => saveField(entry.id, entry.field, entry.prevValue, false));
+  }
+
+  function fillDown() {
+    const bounds = selectionBounds();
+    if (!bounds) return;
+    const batch: UndoEntry[] = [];
+    for (let ci = bounds.colLo; ci <= bounds.colHi; ci++) {
+      const field = colKeys[ci];
+      if (!clearableField(field)) continue;
+      const topRow = filtered[bounds.rowLo];
+      if (!topRow) continue;
+      const value = topRow[field] as string | number | boolean | null;
+      for (let ri = bounds.rowLo + 1; ri <= bounds.rowHi; ri++) {
+        const row = filtered[ri];
+        if (!row) continue;
+        batch.push({ id: row.id, field, prevValue: row[field] as string | number | boolean | null });
+        saveField(row.id, field, value, false);
+      }
+    }
+    if (batch.length) undoStack.current.push(batch);
+  }
+
+  const focusRef = useRef<{ id: number; field: Field } | null>(null);
+
+  function moveSelection(dRow: number, dCol: number, extend = false) {
+    const from = focusRef.current || dragAnchor;
+    if (!from) return;
+    const ri = filtered.findIndex((r) => r.id === from.id);
+    const ci = colKeys.indexOf(from.field);
+    if (ri === -1 || ci === -1) return;
+    const nextRi = Math.min(Math.max(ri + dRow, 0), filtered.length - 1);
+    const nextCi = Math.min(Math.max(ci + dCol, 0), colKeys.length - 1);
+    const row = filtered[nextRi];
+    if (!row) return;
+    const field = colKeys[nextCi];
+    focusRef.current = { id: row.id, field };
+    if (extend && dragAnchor) {
+      const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
+      const colA = colKeys.indexOf(dragAnchor.field);
+      const [rowLo, rowHi] = rowA <= nextRi ? [rowA, nextRi] : [nextRi, rowA];
+      const [colLo, colHi] = colA <= nextCi ? [colA, nextCi] : [nextCi, colA];
+      const next = new Set<string>();
+      for (let r2 = rowLo; r2 <= rowHi; r2++) {
+        for (let c2 = colLo; c2 <= colHi; c2++) next.add(cellKey(filtered[r2].id, colKeys[c2]));
+      }
+      setSelectedCells(next);
+    } else {
+      setDragAnchor({ id: row.id, field });
+      setSelectedCells(new Set([cellKey(row.id, field)]));
+    }
+  }
 
   function startDrag(row: AdminOrderRow, field: Field) {
     setDragAnchor({ id: row.id, field });
+    focusRef.current = { id: row.id, field };
     setIsDragging(true);
     setSelectedCells(new Set([cellKey(row.id, field)]));
   }
@@ -189,36 +265,63 @@ export default function AdminOrdersTable({
 
       if ((e.key === "v" || e.key === "V") && (e.ctrlKey || e.metaKey) && !inInput && dragAnchor) {
         e.preventDefault();
-        navigator.clipboard.readText().then((text) => {
-          const grid = text.replace(/\r/g, "").split("\n").map((line) => line.split("\t"));
-          const startRow = filtered.findIndex((r) => r.id === dragAnchor.id);
-          const startCol = colKeys.indexOf(dragAnchor.field);
-          if (startRow === -1 || startCol === -1) return;
-          for (let ri = 0; ri < grid.length; ri++) {
-            const targetRow = filtered[startRow + ri];
-            if (!targetRow) break;
-            for (let ci = 0; ci < grid[ri].length; ci++) {
-              const field = colKeys[startCol + ci];
-              if (!field || !clearableField(field)) continue;
-              const raw = grid[ri][ci].trim();
-              const value = raw === "" ? null : field === "amount" || field === "review_fee" ? Number(raw) : raw;
-              saveField(targetRow.id, field, value);
-            }
-          }
-        });
+        handlePasteCommand();
         return;
+      }
+
+      if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !inInput) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+
+      if ((e.key === "d" || e.key === "D") && (e.ctrlKey || e.metaKey) && !inInput && selectedCells.size > 1) {
+        e.preventDefault();
+        fillDown();
+        return;
+      }
+
+      if (!editing && !inInput && dragAnchor && !e.ctrlKey && !e.metaKey) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const row = filtered.find((r) => r.id === dragAnchor.id);
+          if (row) startEdit(row, dragAnchor.field);
+          return;
+        }
+        if (e.key === "Escape") {
+          setSelectedCells(new Set());
+          return;
+        }
+        if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault();
+          const dRow = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+          const dCol = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+          moveSelection(dRow, dCol, e.shiftKey);
+          return;
+        }
+        if (e.key === "Tab") {
+          e.preventDefault();
+          moveSelection(0, e.shiftKey ? -1 : 1);
+          return;
+        }
       }
 
       if (editing) return;
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       if (inInput) return;
       if (selectedCells.size > 1) {
+        const batch: UndoEntry[] = [];
         selectedCells.forEach((key) => {
           const idx = key.lastIndexOf(":");
           const id = Number(key.slice(0, idx));
           const field = key.slice(idx + 1) as Field;
-          if (clearableField(field)) saveField(id, field, null);
+          if (!clearableField(field)) return;
+          const current = rows.find((r) => r.id === id);
+          if (!current) return;
+          batch.push({ id, field, prevValue: current[field] as string | number | boolean | null });
+          saveField(id, field, null, false);
         });
+        if (batch.length) undoStack.current.push(batch);
         return;
       }
       if (!hoverCell) return;
@@ -234,8 +337,6 @@ export default function AdminOrdersTable({
   const [blacklistNames, setBlacklistNames] = useState<NameEntry[]>([]);
   const [whitelistNames, setWhitelistNames] = useState<NameEntry[]>([]);
   const [showNameManager, setShowNameManager] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newNameKind, setNewNameKind] = useState<"blacklist" | "whitelist">("blacklist");
 
   useEffect(() => {
     loadNameLists();
@@ -254,38 +355,16 @@ export default function AdminOrdersTable({
     }
   }
 
-  async function addNameEntry() {
-    const value = newName.trim();
-    if (!value) return;
-    const res = await fetch("/api/admin/name-list", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: newNameKind, value }),
-    });
-    const data = await res.json();
-    if (!data.ok) {
-      alert(data.message || "추가 실패");
-      return;
-    }
-    setNewName("");
-    loadNameLists();
-  }
-
-  async function removeNameEntry(kind: "blacklist" | "whitelist", id: string) {
-    const res = await fetch(`/api/admin/name-list?kind=${kind}&id=${id}`, { method: "DELETE" });
-    const data = await res.json();
-    if (!data.ok) {
-      alert(data.message || "삭제 실패");
-      return;
-    }
-    loadNameLists();
-  }
-
   const blacklistSet = useMemo(() => new Set(blacklistNames.map((n) => n.value)), [blacklistNames]);
   const whitelistSet = useMemo(() => new Set(whitelistNames.map((n) => n.value)), [whitelistNames]);
   const kFlags = useMemo(() => computeKFlags(rows, blacklistSet, whitelistSet), [rows, blacklistSet, whitelistSet]);
   const addressDupFlags = useMemo(() => computeAddressDupFlags(rows), [rows]);
   const batchCompleteFlags = useMemo(() => computeBatchCompleteFlags(rows), [rows]);
+
+  function selectWholeRow(row: AdminOrderRow) {
+    setDragAnchor({ id: row.id, field: colKeys[0] });
+    setSelectedCells(new Set(colKeys.map((k) => cellKey(row.id, k))));
+  }
 
   function startResize(e: ReactMouseEvent, key: Field) {
     e.preventDefault();
@@ -317,7 +396,11 @@ export default function AdminOrdersTable({
     });
   }, [rows, q, dateFilter]);
 
-  async function saveField(id: number, field: Field, value: string | number | boolean | null) {
+  async function saveField(id: number, field: Field, value: string | number | boolean | null, pushUndo = true) {
+    if (pushUndo) {
+      const current = rows.find((r) => r.id === id);
+      if (current) undoStack.current.push([{ id, field, prevValue: current[field] as string | number | boolean | null }]);
+    }
     setSavingId(id);
     try {
       const res = await fetch(`/api/admin/orders/${id}`, {
@@ -330,7 +413,14 @@ export default function AdminOrdersTable({
         alert(data.message || "저장 실패");
         return;
       }
-      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+      if (field === "full_date" && typeof value === "string") {
+        const m = value.match(/^\d{4}-(\d{2})-(\d{2})$/);
+        setRows((prev) =>
+          prev.map((r) => (r.id === id ? { ...r, full_date: value, date_mmdd: m ? `${m[1]}${m[2]}` : r.date_mmdd } : r))
+        );
+      } else {
+        setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+      }
     } catch {
       alert("저장 중 오류가 발생했습니다");
     } finally {
@@ -338,8 +428,20 @@ export default function AdminOrdersTable({
     }
   }
 
+  function guessFullDate(row: AdminOrderRow): string {
+    if (row.full_date) return row.full_date;
+    const m = String(row.date_mmdd || "").match(/^(\d{2})(\d{2})$/);
+    const year = row.created_at ? new Date(row.created_at).getFullYear() : new Date().getFullYear();
+    if (!m) return "";
+    return `${year}-${m[1]}-${m[2]}`;
+  }
+
   function startEdit(row: AdminOrderRow, field: Field) {
     setEditing({ id: row.id, field });
+    if (field === "date_mmdd") {
+      setEditValue(guessFullDate(row));
+      return;
+    }
     const v = row[field];
     setEditValue(v == null ? "" : String(v));
   }
@@ -347,6 +449,11 @@ export default function AdminOrdersTable({
   function commitEdit() {
     if (!editing) return;
     const field = editing.field;
+    if (field === "date_mmdd") {
+      if (editValue) saveField(editing.id, "full_date", editValue);
+      setEditing(null);
+      return;
+    }
     const raw = editValue.trim();
     const value = raw === "" ? null : field === "amount" || field === "review_fee" ? Number(raw) : raw;
     saveField(editing.id, field, value);
@@ -367,8 +474,13 @@ export default function AdminOrdersTable({
     if (next) startEdit(next, field);
   }
 
-  async function toggleBool(row: AdminOrderRow, field: "paid" | "review_done" | "company_paid") {
-    await saveField(row.id, field, !row[field]);
+  async function toggleBool(row: AdminOrderRow, field: "paid" | "review_done") {
+    const next = !row[field];
+    await saveField(row.id, field, next);
+    if (field === "paid") {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      await saveField(row.id, "paid_date", next ? todayStr : null, false);
+    }
   }
 
   async function doLogout() {
@@ -382,18 +494,103 @@ export default function AdminOrdersTable({
   async function addRow() {
     setAdding(true);
     try {
+      const row = await createRow();
+      if (row) {
+        setRows((prev) => [...prev, row]);
+        setQ("");
+        setDateFilter("");
+      }
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function createRow(): Promise<AdminOrderRow | null> {
+    try {
       const res = await fetch("/api/admin/orders", { method: "POST" });
       const data = await res.json();
       if (!data.ok) {
         alert(data.message || "추가 실패");
-        return;
+        return null;
       }
-      setRows((prev) => [...prev, { ...data.row, _group: null }]);
+      return { ...data.row, _group: null };
     } catch {
       alert("추가 중 오류가 발생했습니다");
-    } finally {
-      setAdding(false);
+      return null;
     }
+  }
+
+  const IMAGE_UPLOAD_FIELDS = new Set<Field>(["order_image", "review_url"]);
+
+  async function handlePasteCommand() {
+    if (!dragAnchor) return;
+    if (IMAGE_UPLOAD_FIELDS.has(dragAnchor.field) && selectedCells.size <= 1) {
+      const file = await readClipboardImageFile(`order_${dragAnchor.id}`);
+      if (file) {
+        const row = filtered.find((r) => r.id === dragAnchor.id);
+        if (row) await pasteImageToRow(row, dragAnchor.field);
+        return;
+      }
+    }
+    const text = await navigator.clipboard.readText();
+    pasteGrid(text);
+  }
+
+  async function pasteImageToRow(row: AdminOrderRow, field: Field) {
+    const file = await readClipboardImageFile(`order_${row.id}`);
+    if (!file) return;
+    setSavingId(row.id);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const res = await fetch(`/api/admin/orders/${row.id}/image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field, imageDataUrl: dataUrl }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.message || "이미지 업로드 실패");
+        return;
+      }
+      undoStack.current.push([{ id: row.id, field, prevValue: row[field] as string | number | boolean | null }]);
+      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, [field]: data.url } : r)));
+    } catch {
+      alert("이미지 업로드 중 오류가 발생했습니다");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function pasteGrid(text: string) {
+    if (!dragAnchor) return;
+    const lines = text.replace(/\r/g, "").split("\n");
+    while (lines.length && lines[lines.length - 1] === "") lines.pop();
+    const grid = lines.map((line) => line.split("\t"));
+    if (!grid.length) return;
+    const startRow = filtered.findIndex((r) => r.id === dragAnchor.id);
+    const startCol = colKeys.indexOf(dragAnchor.field);
+    if (startRow === -1 || startCol === -1) return;
+    const localRows = filtered.slice();
+    const batch: UndoEntry[] = [];
+    for (let ri = 0; ri < grid.length; ri++) {
+      let targetRow = localRows[startRow + ri];
+      if (!targetRow) {
+        const row = await createRow();
+        if (!row) break;
+        targetRow = row;
+        localRows.push(row);
+        setRows((prev) => [...prev, row]);
+      }
+      for (let ci = 0; ci < grid[ri].length; ci++) {
+        const field = colKeys[startCol + ci];
+        if (!field || !clearableField(field)) continue;
+        const raw = grid[ri][ci].trim();
+        const value = raw === "" ? null : field === "amount" || field === "review_fee" ? Number(raw) : raw;
+        batch.push({ id: targetRow.id, field, prevValue: targetRow[field] as string | number | boolean | null });
+        saveField(targetRow.id, field, value, false);
+      }
+    }
+    if (batch.length) undoStack.current.push(batch);
   }
 
   function deleteRow(id: number) {
@@ -403,7 +600,14 @@ export default function AdminOrdersTable({
     setRows((prev) => prev.filter((r) => r.id !== id));
     const timer = setTimeout(async () => {
       setPendingDeletes((prev) => prev.filter((p) => p.row.id !== id));
-      const res = await fetch(`/api/admin/orders/${id}`, { method: "DELETE" });
+      const res =
+        mode === "active"
+          ? await fetch(`/api/admin/orders/${id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ field: "hidden_from_active", value: true }),
+            })
+          : await fetch(`/api/admin/orders/${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!data.ok) {
         alert(data.message || "삭제 실패");
@@ -415,6 +619,83 @@ export default function AdminOrdersTable({
       }
     }, 5000);
     setPendingDeletes((prev) => [...prev, { row, index, timer }]);
+  }
+
+  function resolvedDate(row: AdminOrderRow): Date {
+    return new Date(row.full_date || row.created_at);
+  }
+
+  const availableYearMonths = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((r) => {
+      const d = resolvedDate(r);
+      set.add(`${d.getFullYear()}-${d.getMonth() + 1}`);
+    });
+    return set;
+  }, [rows]);
+  const availableYears = useMemo(
+    () => Array.from(new Set(Array.from(availableYearMonths).map((k) => Number(k.split("-")[0])))).sort((a, b) => b - a),
+    [availableYearMonths]
+  );
+  const availableMonthsForYear = useMemo(
+    () =>
+      Array.from(availableYearMonths)
+        .filter((k) => Number(k.split("-")[0]) === bulkYear)
+        .map((k) => Number(k.split("-")[1]))
+        .sort((a, b) => a - b),
+    [availableYearMonths, bulkYear]
+  );
+
+  useEffect(() => {
+    if (!availableYears.length) return;
+    if (!availableYears.includes(bulkYear)) setBulkYear(availableYears[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableYears]);
+
+  useEffect(() => {
+    if (!availableMonthsForYear.length) return;
+    if (!availableMonthsForYear.includes(bulkMonth)) setBulkMonth(availableMonthsForYear[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableMonthsForYear]);
+
+  async function bulkDeleteMonth() {
+    const count = rows.filter((r) => {
+      const d = resolvedDate(r);
+      return d.getFullYear() === bulkYear && d.getMonth() + 1 === bulkMonth;
+    }).length;
+    if (!count) {
+      alert(`${bulkYear}년 ${bulkMonth}월 진행건이 없습니다`);
+      return;
+    }
+    if (!confirm(`${bulkYear}년 ${bulkMonth}월 진행건 ${count}건을 전체 삭제할까요?\n이 작업은 되돌릴 수 없습니다.`)) return;
+    const pw = prompt("삭제하려면 비밀번호를 입력하세요");
+    if (pw === null) return;
+    if (pw !== "0596") {
+      alert("비밀번호가 올바르지 않습니다");
+      return;
+    }
+    setBulkDeleting(true);
+    try {
+      const res = await fetch("/api/admin/orders/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year: bulkYear, month: bulkMonth }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.message || "삭제 실패");
+        return;
+      }
+      setRows((prev) =>
+        prev.filter((r) => {
+          const d = resolvedDate(r);
+          return !(d.getFullYear() === bulkYear && d.getMonth() + 1 === bulkMonth);
+        })
+      );
+      alert(`✅ ${data.deleted}건 삭제되었습니다`);
+    } finally {
+      setBulkDeleting(false);
+    }
   }
 
   function undoDelete(id: number) {
@@ -432,24 +713,97 @@ export default function AdminOrdersTable({
     });
   }
 
+  const [reviewCompleteMsgs, setReviewCompleteMsgs] = useState<{ key: string; company: string; product: string; msg: string }[] | null>(null);
+  const [checkingReview, setCheckingReview] = useState(false);
+
+  function fmtStartDay(mmdd: string) {
+    if (!mmdd || mmdd.length !== 4) return mmdd;
+    return `${Number(mmdd.slice(0, 2))}/${mmdd.slice(2)}`;
+  }
+
+  async function checkReviewComplete() {
+    setCheckingReview(true);
+    try {
+      const groups = new Map<string, { code: string; company: string; product: string; total: number; done: number; minMmdd: string }>();
+      for (const r of rows) {
+        const orderNo = (r.order_no || "").trim();
+        if (!orderNo) continue; // 예정 슬롯 제외
+        const code = (r.company_code || "").trim();
+        const company = (r.company_name || "").trim();
+        const product = (r.product_name || "").trim();
+        if (!code || !product) continue;
+        const key = `${code}|${company}|${product}`;
+        if (!groups.has(key)) groups.set(key, { code, company, product, total: 0, done: 0, minMmdd: r.date_mmdd });
+        const g = groups.get(key)!;
+        g.total++;
+        if (r.review_done) g.done++;
+        if (r.date_mmdd && r.date_mmdd < g.minMmdd) g.minMmdd = r.date_mmdd;
+      }
+
+      const completed = Array.from(groups.entries())
+        .filter(([, g]) => g.total > 0 && g.done === g.total)
+        .map(([key, g]) => ({ key, ...g }));
+
+      if (!completed.length) {
+        alert("아직 전체 완료된 제품이 없습니다");
+        return;
+      }
+
+      const res = await fetch("/api/admin/review-complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          groups: completed.map((g) => ({ key: g.key, code: g.code, company: g.company, product: g.product, startMmdd: g.minMmdd })),
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.message || "확인 실패");
+        return;
+      }
+      const fresh: { key: string; code: string; company: string; product: string; startMmdd: string }[] = data.fresh || [];
+      if (!fresh.length) {
+        alert("새로 완료된 제품이 없습니다\n(이전에 확인한 건은 제외됩니다)");
+        return;
+      }
+      setReviewCompleteMsgs(
+        fresh.map((g) => ({
+          key: g.key,
+          company: `${g.code} ${g.company}`,
+          product: g.product,
+          msg: `${fmtStartDay(g.startMmdd)}에 맡겨주신 ${g.product} 리뷰 전체완료 했습니다`,
+        }))
+      );
+    } finally {
+      setCheckingReview(false);
+    }
+  }
+
+  const SUPABASE_PROJECT_REF = "gbbwqubgujfuoolvedbq";
+  const IMAGE_FOLDER_LINKS = [
+    { label: "📁 구매이미지", bucket: "purchase-images" },
+    { label: "📁 리뷰이미지", bucket: "review-images" },
+  ];
+
   return (
     <div className="flex flex-col gap-3 h-full">
+      <div className="flex items-center gap-2 flex-wrap">
+        {IMAGE_FOLDER_LINKS.map((f) => (
+          <a
+            key={f.bucket}
+            href={`https://supabase.com/dashboard/project/${SUPABASE_PROJECT_REF}/storage/buckets/${f.bucket}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs bg-neutral-700 text-white font-bold rounded-lg px-2.5 py-1 hover:bg-neutral-800"
+          >
+            {f.label} →
+          </a>
+        ))}
+      </div>
       <div className="flex items-center gap-2">
-        <div className="text-lg font-extrabold text-neutral-700">📋 메인 전체보기</div>
+        <div className="text-lg font-extrabold text-neutral-700">{title}</div>
         <span className="text-xs text-neutral-500">{filtered.length.toLocaleString("ko-KR")}건</span>
         <span className="text-xs text-neutral-400">셀을 클릭하면 바로 수정할 수 있어요</span>
-        <Link href="/admin/requests" className="text-xs font-bold text-emerald-700 underline">
-          📝 작업요청서 →
-        </Link>
-        <Link href="/admin/guides" className="text-xs font-bold text-emerald-700 underline">
-          🌷 구매가이드 →
-        </Link>
-        <Link href="/admin/accounts" className="text-xs font-bold text-emerald-700 underline">
-          👤 계정관리 →
-        </Link>
-        <Link href="/admin/tools" className="text-xs font-bold text-emerald-700 underline">
-          🧰 관리도구 →
-        </Link>
         <div className="flex-1" />
         <input
           className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm w-24"
@@ -468,7 +822,14 @@ export default function AdminOrdersTable({
           className="text-xs border border-neutral-300 rounded-lg px-3 py-1.5 font-bold text-neutral-600"
           onClick={() => setShowNameManager((v) => !v)}
         >
-          🚩 예정 블랙/화이트리스트
+          🚩 색상 안내
+        </button>
+        <button
+          className="text-xs bg-rose-600 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
+          onClick={checkReviewComplete}
+          disabled={checkingReview}
+        >
+          {checkingReview ? "확인 중..." : "📋 업체리뷰확인"}
         </button>
         <button
           className="text-xs bg-neutral-800 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
@@ -481,6 +842,41 @@ export default function AdminOrdersTable({
           로그아웃
         </button>
       </div>
+
+      {mode === "full" && (
+        <div className="flex items-center gap-2 border border-rose-200 bg-rose-50 rounded-xl px-3 py-2">
+          <span className="text-xs font-bold text-rose-600 shrink-0">🗑️ 년도/월 진행건 전체삭제 (날짜 기준)</span>
+          <select
+            className="border border-neutral-300 rounded-lg px-2 py-1 text-xs"
+            value={bulkYear}
+            onChange={(e) => setBulkYear(Number(e.target.value))}
+          >
+            {availableYears.map((y) => (
+              <option key={y} value={y}>
+                {y}년
+              </option>
+            ))}
+          </select>
+          <select
+            className="border border-neutral-300 rounded-lg px-2 py-1 text-xs"
+            value={bulkMonth}
+            onChange={(e) => setBulkMonth(Number(e.target.value))}
+          >
+            {availableMonthsForYear.map((m) => (
+              <option key={m} value={m}>
+                {m}월
+              </option>
+            ))}
+          </select>
+          <button
+            className="text-xs bg-rose-600 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
+            onClick={bulkDeleteMonth}
+            disabled={bulkDeleting}
+          >
+            {bulkDeleting ? "삭제 중..." : "전체삭제"}
+          </button>
+        </div>
+      )}
 
       {showNameManager && (
         <div className="border border-neutral-300 rounded-xl p-3 bg-neutral-50 flex flex-col gap-3">
@@ -500,57 +896,13 @@ export default function AdminOrdersTable({
               해당건 완료(실진행열)
             </span>
           </div>
-
-          <div className="flex gap-2 items-center">
-            <select
-              className="border border-neutral-300 rounded-lg px-2 py-1.5 text-sm"
-              value={newNameKind}
-              onChange={(e) => setNewNameKind(e.target.value as "blacklist" | "whitelist")}
-            >
-              <option value="blacklist">블랙리스트</option>
-              <option value="whitelist">화이트리스트</option>
-            </select>
-            <input
-              className="border border-neutral-300 rounded-lg px-2 py-1.5 text-sm flex-1"
-              placeholder="진행자 이름"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addNameEntry()}
-            />
-            <button className="text-xs bg-neutral-800 text-white rounded-lg px-3 py-1.5 font-bold" onClick={addNameEntry}>
-              추가
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="text-xs font-bold text-rose-600 mb-1">블랙리스트</div>
-              <div className="flex flex-wrap gap-1.5">
-                {blacklistNames.map((n) => (
-                  <span key={n.id} className="bg-rose-100 text-rose-700 text-xs rounded-full px-2 py-0.5 flex items-center gap-1">
-                    {n.value}
-                    <button className="font-bold" onClick={() => removeNameEntry("blacklist", n.id)}>
-                      ×
-                    </button>
-                  </span>
-                ))}
-                {!blacklistNames.length && <span className="text-xs text-neutral-400">없음</span>}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs font-bold text-blue-600 mb-1">화이트리스트</div>
-              <div className="flex flex-wrap gap-1.5">
-                {whitelistNames.map((n) => (
-                  <span key={n.id} className="bg-blue-100 text-blue-700 text-xs rounded-full px-2 py-0.5 flex items-center gap-1">
-                    {n.value}
-                    <button className="font-bold" onClick={() => removeNameEntry("whitelist", n.id)}>
-                      ×
-                    </button>
-                  </span>
-                ))}
-                {!whitelistNames.length && <span className="text-xs text-neutral-400">없음</span>}
-              </div>
-            </div>
+          <div className="flex gap-3 text-xs">
+            <Link href="/admin/blacklist" className="font-bold text-rose-600 underline">
+              🚫 블랙리스트 관리 →
+            </Link>
+            <Link href="/admin/whitelist" className="font-bold text-emerald-700 underline">
+              ✅ 화이트리스트 관리 →
+            </Link>
           </div>
         </div>
       )}
@@ -563,7 +915,7 @@ export default function AdminOrdersTable({
               className="bg-neutral-800 text-white text-sm rounded-xl px-3 py-2 flex items-center gap-3"
             >
               <span>
-                {p.row.product_name || "행"} 삭제됨
+                {p.row.product_name || "행"} {mode === "active" ? "숨김 처리됨 (전체보기에는 남아있어요)" : "삭제됨"}
               </span>
               <button className="text-rose-300 font-bold underline" onClick={() => undoDelete(p.row.id)}>
                 되돌리기
@@ -582,9 +934,10 @@ export default function AdminOrdersTable({
       <div className="border border-neutral-300 rounded-xl overflow-auto flex-1">
         <table
           className="text-xs border-collapse"
-          style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 36) }}
+          style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 36 + 36) }}
         >
           <colgroup>
+            <col style={{ width: 36 }} />
             {COLUMNS.map((c) => (
               <col key={c.key} style={{ width: widths[c.key] }} />
             ))}
@@ -592,6 +945,7 @@ export default function AdminOrdersTable({
           </colgroup>
           <thead className="sticky top-0 bg-neutral-800 text-white z-10">
             <tr>
+              <th className="px-1 py-2 text-center border-r border-neutral-700"></th>
               {COLUMNS.map((c) => (
                 <th
                   key={c.key}
@@ -608,8 +962,14 @@ export default function AdminOrdersTable({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r) => (
+            {filtered.map((r, ri) => (
               <tr key={r.id} className="border-b border-neutral-200">
+                <td
+                  className="px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 cursor-pointer hover:bg-neutral-200 select-none"
+                  onClick={() => selectWholeRow(r)}
+                >
+                  {ri + 1}
+                </td>
                 {COLUMNS.map((c) => {
                   if (c.kind === "toggle") {
                     const on = !!r[c.key];
@@ -620,7 +980,7 @@ export default function AdminOrdersTable({
                           className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
                             on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
                           }`}
-                          onClick={() => toggleBool(r, c.key as "review_done" | "paid" | "company_paid")}
+                          onClick={() => toggleBool(r, c.key as "review_done" | "paid")}
                           disabled={savingId === r.id}
                         >
                           {on ? onLabel : offLabel}
@@ -660,16 +1020,32 @@ export default function AdminOrdersTable({
                       key={c.key}
                       className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis select-none"
                       style={{ backgroundColor: flagBg, boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined }}
-                      onClick={() => !isEditing && startEdit(r, c.key)}
+                      onDoubleClick={() => !isEditing && startEdit(r, c.key)}
                       onMouseDown={() => startDrag(r, c.key)}
                       onMouseEnter={() => {
                         setHoverCell({ id: r.id, field: c.key });
                         dragOver(r, c.key);
                       }}
                       onMouseLeave={() => setHoverCell((h) => (h && h.id === r.id && h.field === c.key ? null : h))}
-                      title={flagTitle || (typeof val === "string" ? val : undefined)}
+                      title={flagTitle || (c.key === "date_mmdd" ? guessFullDate(r) : typeof val === "string" ? val : undefined)}
                     >
-                      {isEditing ? (
+                      {isEditing && c.key === "date_mmdd" ? (
+                        <div className="flex items-center gap-0.5 min-w-[120px] border border-rose-400 rounded px-1 py-0.5 bg-white">
+                          <span className="text-xs shrink-0">📅</span>
+                          <input
+                            autoFocus
+                            type="date"
+                            className="w-full text-xs outline-none text-center"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={commitEdit}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitEdit();
+                              else if (e.key === "Escape") cancelEdit();
+                            }}
+                          />
+                        </div>
+                      ) : isEditing ? (
                         <input
                           autoFocus
                           className="w-full min-w-[36px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
@@ -709,6 +1085,8 @@ export default function AdminOrdersTable({
                         )
                       ) : c.align === "right" ? (
                         fmt(val as number)
+                      ) : c.key === "paid_date" && val ? (
+                        formatPaidDate(val as string)
                       ) : (
                         (val as string) ?? ""
                       )}
@@ -719,7 +1097,7 @@ export default function AdminOrdersTable({
                   <button
                     className="text-neutral-400 hover:text-rose-600 font-bold px-1"
                     onClick={() => deleteRow(r.id)}
-                    title="행 삭제"
+                    title={mode === "active" ? "체험단진행에서 숨기기 (전체보기에는 남아있음)" : "행 삭제"}
                   >
                     ✕
                   </button>
@@ -729,6 +1107,50 @@ export default function AdminOrdersTable({
           </tbody>
         </table>
       </div>
+
+      {reviewCompleteMsgs && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setReviewCompleteMsgs(null)}>
+          <div
+            className="bg-white rounded-2xl p-4 w-full max-w-lg max-h-[80vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-extrabold text-rose-600">✅ 전체 리뷰 완료 · {reviewCompleteMsgs.length}개 제품</div>
+              <button
+                className="text-xs bg-rose-600 text-white font-bold rounded-lg px-3 py-1.5"
+                onClick={() => {
+                  navigator.clipboard.writeText(reviewCompleteMsgs.map((m) => m.msg).join("\n"));
+                }}
+              >
+                전체 복사
+              </button>
+            </div>
+            <div className="flex flex-col gap-2">
+              {reviewCompleteMsgs.map((m) => (
+                <div key={m.key} className="border border-rose-200 rounded-xl p-3 bg-rose-50/40">
+                  <div className="text-xs font-bold text-neutral-500">{m.company}</div>
+                  <div className="text-sm font-extrabold text-neutral-800 mb-1.5">{m.product}</div>
+                  <div className="flex gap-2">
+                    <textarea readOnly className="flex-1 text-xs border border-rose-200 rounded-lg px-2 py-1.5 bg-white resize-none" value={m.msg} />
+                    <button
+                      className="text-xs bg-rose-600 text-white font-bold rounded-lg px-3 shrink-0"
+                      onClick={() => navigator.clipboard.writeText(m.msg)}
+                    >
+                      복사
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              className="w-full mt-3 text-xs font-bold text-neutral-500 border border-neutral-300 rounded-lg py-2"
+              onClick={() => setReviewCompleteMsgs(null)}
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

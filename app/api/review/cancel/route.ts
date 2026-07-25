@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
     const { error: updErr } = await supabase
       .from("orders")
-      .update({ review_url: null, review_done: false })
+      .update({ review_url: null, review_done: false, review_submitted_at: null })
       .eq("id", rowId);
     if (updErr) throw new Error(updErr.message);
 

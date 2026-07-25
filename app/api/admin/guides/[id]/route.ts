@@ -21,6 +21,7 @@ const EDITABLE_FIELDS = new Set([
   "buy_type",
   "review_type",
   "delivery",
+  "keyword_url",
   "image_url",
   "deadline",
   "checked_at",
@@ -28,6 +29,7 @@ const EDITABLE_FIELDS = new Set([
 
 const NUMBER_FIELDS = new Set(["price"]);
 const BOOL_FIELDS = new Set(["active"]);
+const NOT_NULL_TEXT_FIELDS = new Set(["short_name"]);
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const cookieStore = await cookies();
@@ -44,7 +46,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   let value = body.value;
-  if (value === "") value = null;
+  if (value === "") value = NOT_NULL_TEXT_FIELDS.has(field) ? "" : null;
   if (value !== null) {
     if (NUMBER_FIELDS.has(field)) value = Number(value);
     else if (BOOL_FIELDS.has(field)) value = !!value;

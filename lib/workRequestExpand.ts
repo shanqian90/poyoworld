@@ -135,3 +135,30 @@ export function fmtMMDD(d: Date): string {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${mm}${dd}`;
 }
+
+type WorkRequestForGuide = {
+  company_code: string | null;
+  company_name: string;
+  product_url: string | null;
+  keyword: string;
+  product_option: string | null;
+  product_price: number | null;
+  review_type: string | null;
+  real_shipping: boolean;
+};
+
+/** 진행요청서 한 건으로부터 구매가이드(guide_products) 삽입 행을 만든다 */
+export function buildGuideRow(r: WorkRequestForGuide): Record<string, unknown> {
+  return {
+    active: true,
+    code: r.company_code,
+    company: r.company_name,
+    platform: detectPlatform(r.product_url || ""),
+    short_name: r.keyword,
+    option_text: r.product_option,
+    product_url: r.product_url,
+    price: r.product_price,
+    review_type: r.review_type,
+    delivery: r.real_shipping ? "실배송" : "빈박스",
+  };
+}

@@ -1,3 +1,14 @@
+export type Notice = {
+  id: string;
+  title: string;
+  content: string;
+  importance: "일반" | "중요" | "긴급";
+  pinned: boolean;
+  author: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Vendor = {
   id: string;
   login_id: string;
@@ -44,6 +55,7 @@ export type GuideProduct = {
   buy_type: string | null;
   review_type: string | null;
   delivery: string | null;
+  keyword_url: string | null;
   image_url: string | null;
   deadline: string | null;
   checked_at: string | null;
@@ -75,6 +87,7 @@ export type OrderRow = {
   paid_date: string | null;
   delivery: string | null;
   tracking: string | null;
+  payback_name: string | null;
 };
 
 export type SlotOption = {
@@ -82,6 +95,7 @@ export type SlotOption = {
   label: string;
   amount: number | null;
   remaining: number;
+  total: number;
 };
 
 export type SlotMap = Record<string, SlotOption[]>; // productName -> options

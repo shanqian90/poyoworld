@@ -194,6 +194,7 @@ create policy guide_products_delete on guide_products for delete using (true);
 
 alter table guide_products drop column if exists has_receipt;
 alter table guide_products add column if not exists status text;
+alter table guide_products add column if not exists keyword_url text;
 
 drop policy if exists orders_all on orders;
 create policy orders_all on orders for all using (true) with check (true);
@@ -258,6 +259,92 @@ create policy "estimate images public read" on storage.objects
 drop policy if exists "estimate images anon upload" on storage.objects;
 create policy "estimate images anon upload" on storage.objects
   for insert with check (bucket_id = 'estimate-images');
+
+insert into storage.buckets (id, name, public)
+values ('vendor-files', 'vendor-files', true)
+on conflict (id) do nothing;
+
+-- 업체입금은 대기/완료 체크가 아니라 입금자명을 직접 적는 칸이라 텍스트로 전환
+alter table orders alter column company_paid drop default;
+alter table orders alter column company_paid drop not null;
+alter table orders alter column company_paid type text using (case when company_paid then '완료' else null end);
+
+alter table work_requests add column if not exists email text;
+alter table work_requests add column if not exists guide_created boolean not null default false;
+alter table orders add column if not exists hidden_from_active boolean not null default false;
+alter table orders add column if not exists full_date date;
+
+drop policy if exists "vendor files public read" on storage.objects;
+create policy "vendor files public read" on storage.objects
+  for select using (bucket_id = 'vendor-files');
+
+drop policy if exists "vendor files anon upload" on storage.objects;
+create policy "vendor files anon upload" on storage.objects
+  for insert with check (bucket_id = 'vendor-files');
+
+insert into storage.buckets (id, name, public)
+values ('guide-images', 'guide-images', true)
+on conflict (id) do nothing;
+
+drop policy if exists "guide images public read" on storage.objects;
+create policy "guide images public read" on storage.objects
+  for select using (bucket_id = 'guide-images');
+
+drop policy if exists "guide images anon upload" on storage.objects;
+create policy "guide images anon upload" on storage.objects
+  for insert with check (bucket_id = 'guide-images');
+
+-- ============================================================
+-- 업체정산 (실제 입금 이력 - 요청금액과 다를 수 있음, 초과입금은 저축 개념)
+-- ============================================================
+create table if not exists vendor_payments (
+  id uuid primary key default gen_random_uuid(),
+  login_id text not null,
+  amount numeric not null,
+  paid_date date not null,
+  memo text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_vendor_payments_login_id on vendor_payments (lower(login_id));
+
+alter table vendor_payments enable row level security;
+drop policy if exists vendor_payments_all on vendor_payments;
+create policy vendor_payments_all on vendor_payments for all using (true) with check (true);
+
+-- ============================================================
+-- 대량이체 엑셀을 리뷰 제출 순서대로 정렬하기 위한 타임스탬프
+-- ============================================================
+alter table orders add column if not exists review_submitted_at timestamptz;
+
+-- ============================================================
+-- 업체리뷰확인 - 이미 알림 보낸 (업체+제품) 그룹은 다시 안뜨게 기록
+-- ============================================================
+create table if not exists review_complete_seen (
+  seen_key text primary key,
+  seen_at timestamptz not null default now()
+);
+alter table review_complete_seen enable row level security;
+drop policy if exists review_complete_seen_all on review_complete_seen;
+create policy review_complete_seen_all on review_complete_seen for all using (true) with check (true);
+
+-- ============================================================
+-- 중요사항 - 직원 공유 공지게시판
+-- ============================================================
+create table if not exists notices (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  content text not null,
+  importance text not null default '일반' check (importance in ('일반', '중요', '긴급')),
+  pinned boolean not null default false,
+  author text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_notices_pinned_created on notices (pinned desc, created_at desc);
+
+alter table notices enable row level security;
+drop policy if exists notices_all on notices;
+create policy notices_all on notices for all using (true) with check (true);
 
 -- ============================================================
 -- 샘플 데이터 (테스트용 - 필요 없으면 지워도 됨)

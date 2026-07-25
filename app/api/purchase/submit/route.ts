@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { checkBlocked } from "@/lib/blacklist";
-import { extFromMime, parseDataUrl, uploadImage } from "@/lib/storage";
+import { codeNameSegment, extFromMime, parseDataUrl, safeSegment, toKoreanErrorMessage, uploadImage } from "@/lib/storage";
 import { getSlotMap, resolveOptionText } from "@/lib/slots";
 
 type Submission = {
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
       p_option_text: optionText,
       p_order_nos: orderNos,
     });
-    if (claimErr) return fail(claimErr.message, 409);
+    if (claimErr) return fail(toKoreanErrorMessage(claimErr.message), 409);
 
     const claimedRows = (claimed || []) as { id: number; order_no: string }[];
     const rowByOrderNo = new Map(claimedRows.map((r) => [r.order_no, r.id]));
@@ -105,12 +105,14 @@ export async function POST(req: NextRequest) {
           noImageCount++;
         } else {
           const company = companyById.get(rowId);
-          const companyFolder = safeFolderName(company?.company_code || company?.company_name || "미지정업체");
+          const companyFolder = codeNameSegment(company?.company_code, company?.company_name);
+          const productFolder = safeSegment(productName);
           for (let i = 0; i < s.images.length; i++) {
             const { mime } = parseDataUrl(s.images[i]);
             const ext = extFromMime(mime);
             const safeOrderNo = String(s.orderNo).replace(/[^a-zA-Z0-9_-]/g, "_");
-            const path = `${companyFolder}/${dateMmdd}/${safeOrderNo}_${i + 1}.${ext}`;
+            const buyerSegment = safeSegment(s.buyer);
+            const path = `${dateMmdd}/${companyFolder}/${productFolder}/${safeOrderNo}_${buyerSegment}_${i + 1}.${ext}`;
             const url = await uploadImage(supabase, "purchase-images", path, s.images[i]);
             uploaded.push(url);
           }
@@ -137,22 +139,18 @@ export async function POST(req: NextRequest) {
         results.push({
           orderNo: s.orderNo,
           ok: false,
-          message: err instanceof Error ? err.message : "처리 실패",
+          message: err instanceof Error ? toKoreanErrorMessage(err.message) : "처리 실패",
         });
       }
     }
 
     return NextResponse.json({ ok: true, count: submissions.length, noImageCount, results });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "제출 중 오류가 발생했습니다";
+    const message = err instanceof Error ? toKoreanErrorMessage(err.message) : "제출 중 오류가 발생했습니다";
     return NextResponse.json({ ok: false, message }, { status: 500 });
   }
 }
 
 function fail(message: string, status = 400) {
   return NextResponse.json({ ok: false, message }, { status });
-}
-
-function safeFolderName(name: string): string {
-  return name.replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "") || "미지정업체";
 }
