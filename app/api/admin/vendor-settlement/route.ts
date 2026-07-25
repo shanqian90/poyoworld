@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, message: "업체를 선택해주세요" }, { status: 400 });
   }
 
-  const [requestsRes, paymentsRes, chargesRes] = await Promise.all([
+  const [requestsRes, paymentsRes, chargesRes, cutoffRes] = await Promise.all([
     supabase
       .from("work_requests")
       .select(
@@ -37,16 +37,23 @@ export async function GET(req: NextRequest) {
       .select("id, company_code, company_name, product_name, amount, charge_date, memo")
       .ilike("login_id", loginId)
       .order("charge_date", { ascending: false }),
+    supabase.from("vendor_settlement_cutoff").select("cutoff_date").ilike("login_id", loginId).maybeSingle(),
   ]);
 
   if (requestsRes.error) return NextResponse.json({ ok: false, message: requestsRes.error.message }, { status: 500 });
   if (paymentsRes.error) return NextResponse.json({ ok: false, message: paymentsRes.error.message }, { status: 500 });
   if (chargesRes.error) return NextResponse.json({ ok: false, message: chargesRes.error.message }, { status: 500 });
 
+  const cutoff = cutoffRes.data?.cutoff_date || null;
+  const afterCutoff = (dateStr: string | null) => !cutoff || !dateStr || dateStr >= cutoff;
+
   const totalRequested =
-    (requestsRes.data || []).reduce((sum, r) => sum + (r.deposit_amount || 0), 0) +
-    (chargesRes.data || []).reduce((sum, c) => sum + (c.amount || 0), 0);
-  const totalPaid = (paymentsRes.data || []).reduce((sum, p) => sum + (p.amount || 0), 0);
+    (requestsRes.data || []).reduce((sum, r) => sum + (afterCutoff(r.start_date) ? r.deposit_amount || 0 : 0), 0) +
+    (chargesRes.data || []).reduce((sum, c) => sum + (afterCutoff(c.charge_date) ? c.amount || 0 : 0), 0);
+  const totalPaid = (paymentsRes.data || []).reduce(
+    (sum, p) => sum + (afterCutoff(p.paid_date) ? p.amount || 0 : 0),
+    0
+  );
 
   return NextResponse.json({
     ok: true,
@@ -56,6 +63,7 @@ export async function GET(req: NextRequest) {
     totalRequested,
     totalPaid,
     balance: totalPaid - totalRequested,
+    settlementCutoff: cutoff,
   });
 }
 

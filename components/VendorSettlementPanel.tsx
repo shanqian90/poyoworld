@@ -107,6 +107,10 @@ export default function VendorSettlementPanel() {
   const [charges, setCharges] = useState<ChargeRow[]>([]);
   const [totals, setTotals] = useState({ totalRequested: 0, totalPaid: 0, balance: 0 });
   const [loading, setLoading] = useState(false);
+  const [settlementCutoff, setSettlementCutoff] = useState<string | null>(null);
+  const [cutoffInput, setCutoffInput] = useState(todayISO());
+  const [cutoffBusy, setCutoffBusy] = useState(false);
+  const [showCutoffEdit, setShowCutoffEdit] = useState(false);
 
   const [amount, setAmount] = useState("");
   const [paidDate, setPaidDate] = useState(todayISO());
@@ -195,10 +199,52 @@ export default function VendorSettlementPanel() {
       setPayments(data.payments || []);
       setCharges(data.charges || []);
       setTotals({ totalRequested: data.totalRequested, totalPaid: data.totalPaid, balance: data.balance });
+      setSettlementCutoff(data.settlementCutoff || null);
+      setCutoffInput(data.settlementCutoff || todayISO());
+      setShowCutoffEdit(false);
       setAddingCharge(false);
       setAddingPayment(false);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveCutoff() {
+    if (!selected || !cutoffInput) return;
+    setCutoffBusy(true);
+    try {
+      const res = await fetch("/api/admin/vendor-settlement/cutoff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ loginId: selected.loginId, cutoffDate: cutoffInput }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setMsg(data.message || "기준일 저장 실패");
+        return;
+      }
+      await selectVendor(selected);
+    } finally {
+      setCutoffBusy(false);
+    }
+  }
+
+  async function clearCutoff() {
+    if (!selected) return;
+    if (!confirm("집계 기준일을 해제할까요? 다시 전체 기간을 집계합니다.")) return;
+    setCutoffBusy(true);
+    try {
+      const res = await fetch(`/api/admin/vendor-settlement/cutoff?loginId=${encodeURIComponent(selected.loginId)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setMsg(data.message || "기준일 해제 실패");
+        return;
+      }
+      await selectVendor(selected);
+    } finally {
+      setCutoffBusy(false);
     }
   }
 
@@ -689,6 +735,47 @@ export default function VendorSettlementPanel() {
                     {totals.balance < 0 ? "-" : ""}₩{Math.abs(totals.balance).toLocaleString("ko-KR")}
                   </div>
                 </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                {settlementCutoff ? (
+                  <>
+                    <span className="font-bold text-amber-700">
+                      📌 {settlementCutoff} 이후 건만 집계 중 (그 이전은 정산완료 처리됨)
+                    </span>
+                    <button
+                      className="ml-auto text-neutral-500 underline font-bold"
+                      onClick={clearCutoff}
+                      disabled={cutoffBusy}
+                    >
+                      해제
+                    </button>
+                  </>
+                ) : showCutoffEdit ? (
+                  <>
+                    <span className="font-bold text-neutral-600">이 날짜 이후 건만 집계:</span>
+                    <input
+                      type="date"
+                      className="border border-neutral-300 rounded-lg px-2 py-1"
+                      value={cutoffInput}
+                      onChange={(e) => setCutoffInput(e.target.value)}
+                    />
+                    <button
+                      className="bg-neutral-800 text-white rounded-lg px-3 py-1 font-bold disabled:opacity-60"
+                      onClick={saveCutoff}
+                      disabled={cutoffBusy}
+                    >
+                      저장
+                    </button>
+                    <button className="text-neutral-500 underline font-bold" onClick={() => setShowCutoffEdit(false)}>
+                      취소
+                    </button>
+                  </>
+                ) : (
+                  <button className="font-bold text-amber-700 underline" onClick={() => setShowCutoffEdit(true)}>
+                    📌 예전 건은 이미 정산 끝났으면, 집계 기준일 설정하기
+                  </button>
+                )}
               </div>
 
               {loading && <div className="text-center text-sm text-neutral-400 py-6">불러오는 중...</div>}
