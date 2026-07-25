@@ -367,7 +367,7 @@ export default function DeliveryManager() {
               type="file"
               accept=".xlsx,.xls,.csv"
               onChange={(e) => setTrackFile(e.target.files?.[0] || null)}
-              className="text-xs"
+              className="text-xs cursor-pointer file:cursor-pointer file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-sky-600 file:text-white hover:file:bg-sky-700"
             />
             <button
               className="bg-emerald-600 text-white text-sm font-bold rounded-lg px-4 py-2 disabled:opacity-60 shrink-0"

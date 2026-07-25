@@ -14,7 +14,7 @@ type Row = {
   real_manager: string | null;
 };
 
-const THRESHOLD_DAYS = 3;
+const THRESHOLD_DAYS = 10;
 
 function daysSinceMmdd(mmdd: string): number {
   if (!/^\d{4}$/.test(mmdd)) return -1;
@@ -39,6 +39,7 @@ export default function ExpelledList() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [busyName, setBusyName] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     load();
@@ -107,14 +108,25 @@ export default function ExpelledList() {
     }
   }
 
+  function confirmName(name: string) {
+    setConfirmed((prev) => new Set(prev).add(name));
+  }
+
+  const visibleGroups = groups.filter(([name]) => !confirmed.has(name));
+
   return (
-    <div className="flex-1 flex flex-col p-3 gap-3">
+    <div className="flex-1 min-h-0 flex flex-col p-3 gap-3">
       <div className="flex items-center gap-2">
         <Link href="/admin" className="text-sm font-bold text-neutral-500 underline">
           ← 메인 전체보기
         </Link>
         <div className="text-lg font-extrabold text-neutral-700 ml-2">🚷 퇴출명단</div>
-        <span className="text-xs text-neutral-500">{groups.length.toLocaleString("ko-KR")}명</span>
+        <span className="text-xs text-neutral-500">{visibleGroups.length.toLocaleString("ko-KR")}명</span>
+        {confirmed.size > 0 && (
+          <button className="text-xs text-neutral-400 underline" onClick={() => setConfirmed(new Set())}>
+            확인 처리 {confirmed.size}건 다시 보기
+          </button>
+        )}
       </div>
       <div className="text-xs text-neutral-400">
         구매(주문번호)는 완료되었지만 리뷰 미제출이 {THRESHOLD_DAYS}일 이상 지난 진행자를 이름별로 모아 보여줍니다. 확정 시 블랙리스트에 등록되어
@@ -127,8 +139,8 @@ export default function ExpelledList() {
       )}
 
       {!loading && !loadError && (
-        <div className="flex flex-col gap-3">
-          {groups.map(([name, items]) => {
+        <div className="flex flex-col gap-3 overflow-y-auto flex-1 min-h-0">
+          {visibleGroups.map(([name, items]) => {
             const isBlacklisted = blacklisted.has(name);
             const maxDays = Math.max(...items.map((r) => daysSinceMmdd(r.date_mmdd)));
             return (
@@ -142,13 +154,21 @@ export default function ExpelledList() {
                   {isBlacklisted ? (
                     <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2.5 py-1 rounded-full">🚫 블랙리스트 등록됨</span>
                   ) : (
-                    <button
-                      className="text-xs font-bold text-white bg-rose-600 rounded-lg px-3 py-1.5 disabled:opacity-60"
-                      onClick={() => registerBlacklist(name)}
-                      disabled={busyName === name}
-                    >
-                      {busyName === name ? "등록 중..." : "블랙리스트 등록"}
-                    </button>
+                    <>
+                      <button
+                        className="text-xs font-bold text-neutral-600 bg-white border border-neutral-300 rounded-lg px-3 py-1.5"
+                        onClick={() => confirmName(name)}
+                      >
+                        확인
+                      </button>
+                      <button
+                        className="text-xs font-bold text-white bg-rose-600 rounded-lg px-3 py-1.5 disabled:opacity-60"
+                        onClick={() => registerBlacklist(name)}
+                        disabled={busyName === name}
+                      >
+                        {busyName === name ? "등록 중..." : "블랙리스트 등록"}
+                      </button>
+                    </>
                   )}
                 </div>
                 <table className="w-full text-xs border-collapse">
@@ -176,7 +196,7 @@ export default function ExpelledList() {
               </div>
             );
           })}
-          {!groups.length && (
+          {!visibleGroups.length && (
             <div className="text-center text-sm text-neutral-400 py-10">퇴출 대상이 없습니다</div>
           )}
         </div>
