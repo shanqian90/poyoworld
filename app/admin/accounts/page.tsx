@@ -30,7 +30,7 @@ export default async function AdminAccountsPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col p-3">
+    <div className="flex-1 min-h-0 flex flex-col p-3">
       <AdminAccountsTable rows={all} loadError={loadError} />
     </div>
   );

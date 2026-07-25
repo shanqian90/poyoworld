@@ -55,9 +55,8 @@ export async function POST(req: NextRequest) {
     const imageUrl = await uploadImage(supabase, "estimate-images", `${writeDate}/${fileName}`, imageDataUrl);
 
     for (let i = 0; i < ids.length; i++) {
-      const update: Record<string, unknown> = { issue_date: issueDateStr, deposit_date: depositDateStr };
+      const update: Record<string, unknown> = { issue_date: issueDateStr, deposit_date: depositDateStr, image_url: imageUrl };
       if (i === 0) {
-        update.image_url = imageUrl;
         update.deposit_amount = data.summary.invoiceAmount;
       }
       const { error } = await supabase.from("work_requests").update(update).eq("id", ids[i]);

@@ -11,7 +11,7 @@ export default async function AdminStaffSitePage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col p-3">
+    <div className="flex-1 min-h-0 flex flex-col p-3">
       <EmbeddedSitePanel emoji="👔" title="직원사이트" path="/staff/login" iframeTitle="직원 로그인/출퇴근인증 웹앱" />
     </div>
   );

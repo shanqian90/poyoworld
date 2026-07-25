@@ -44,7 +44,7 @@ export default async function AdminPage() {
   });
 
   return (
-    <div className="flex-1 flex flex-col p-3">
+    <div className="flex-1 min-h-0 flex flex-col p-3">
       <AdminOrdersTable rows={colored} loadError={loadError} />
     </div>
   );

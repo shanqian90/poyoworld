@@ -71,7 +71,7 @@ export default async function AdminDashboardPage() {
   ];
 
   return (
-    <div className="flex-1 flex flex-col p-3 gap-4">
+    <div className="flex-1 min-h-0 flex flex-col p-3 gap-4">
       <div className="text-lg font-extrabold text-neutral-700">📊 진행상황 대시보드</div>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {cards.map((c) => (

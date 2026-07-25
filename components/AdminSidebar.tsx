@@ -15,7 +15,8 @@ const GROUPS: NavGroup[] = [
     label: "🏢 업체관리",
     items: [
       { href: "/admin/vendors", label: "업체목록", dataKey: "vendors" },
-      { href: "/admin/requests", label: "진행요청서", dataKey: "work_requests" },
+      { href: "/admin/requests", label: "전체보기", dataKey: "work_requests" },
+      { href: "/admin/requests-recent", label: "진행요청서 (최근20일)" },
       { href: "/admin/estimate", label: "견적서 발행" },
       { href: "/admin/vendor-settlement", label: "업체정산" },
     ],
@@ -117,6 +118,8 @@ export default function AdminSidebar() {
   const [selectedItem, setSelectedItem] = useState<{ group: string; href: string } | null>(null);
   const seenRef = useRef(seen);
   seenRef.current = seen;
+  const latestRef = useRef(latest);
+  latestRef.current = latest;
 
   useEffect(() => {
     try {
@@ -265,14 +268,16 @@ export default function AdminSidebar() {
     };
   }, [hydrated]);
 
-  // 현재 페이지에 해당하는 항목은 방문한 걸로 처리해서 점을 없앤다
+  // 현재 페이지에 해당하는 항목은 "방문 시점"에만 확인 처리한다.
+  // (페이지에 머무는 동안 poll()로 latest가 갱신될 때마다 다시 실행되면,
+  //  이 페이지를 보고 있는 사이에 새 데이터가 들어와도 즉시 seen 처리되어 점이 뜰 기회가 없어진다)
   useEffect(() => {
     if (!hydrated) return;
     const allItems = [TOP_LINK, ...GROUPS.flatMap((g) => g.items)];
     const current = allItems.find((item) => isActive(item.href));
     if (!current?.dataKey) return;
     const key = current.dataKey;
-    const latestValue = latest[key];
+    const latestValue = latestRef.current[key];
     if (!latestValue) return;
     if (seenRef.current[key] === latestValue) return;
     const next = { ...seenRef.current, [key]: latestValue };
@@ -283,7 +288,7 @@ export default function AdminSidebar() {
       /* ignore */
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, hydrated, latest]);
+  }, [pathname, hydrated]);
 
   function toggle() {
     setCollapsed((prev) => {

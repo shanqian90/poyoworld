@@ -11,15 +11,26 @@ export default async function AdminRequestsPage() {
     redirect("/admin/login");
   }
 
-  const { data, error } = await supabase
-    .from("work_requests")
-    .select("*")
-    .order("id", { ascending: false })
-    .limit(500);
+  const rows: WorkRequestRow[] = [];
+  let loadError: string | null = null;
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("work_requests")
+      .select("*")
+      .order("id", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) {
+      loadError = error.message;
+      break;
+    }
+    rows.push(...((data || []) as WorkRequestRow[]));
+    if (!data || data.length < pageSize) break;
+  }
 
   return (
-    <div className="flex-1 flex flex-col p-3">
-      <RequestsPanel rows={(data || []) as WorkRequestRow[]} loadError={error?.message || null} />
+    <div className="flex-1 min-h-0 flex flex-col p-3">
+      <RequestsPanel rows={rows} loadError={loadError} />
     </div>
   );
 }

@@ -11,7 +11,7 @@ export async function GET() {
   }
 
   const [vendorsRes, requestsRes] = await Promise.all([
-    supabase.from("vendors").select("login_id, company_code, company_name").order("login_id", { ascending: true }),
+    supabase.from("vendors").select("login_id, company_code, company_name, owner_name").order("login_id", { ascending: true }),
     supabase.from("work_requests").select("login_id, start_date"),
   ]);
 
@@ -28,13 +28,17 @@ export async function GET() {
 
   const grouped = new Map<
     string,
-    { loginId: string; companies: { code: string | null; name: string }[]; lastRequestDate: string | null }
+    {
+      loginId: string;
+      companies: { code: string | null; name: string; ownerName: string | null }[];
+      lastRequestDate: string | null;
+    }
   >();
   for (const v of vendorsRes.data || []) {
     const loginId = (v.login_id || "").trim();
     if (!loginId) continue;
     if (!grouped.has(loginId)) grouped.set(loginId, { loginId, companies: [], lastRequestDate: lastRequestDate.get(loginId) || null });
-    grouped.get(loginId)!.companies.push({ code: v.company_code, name: v.company_name });
+    grouped.get(loginId)!.companies.push({ code: v.company_code, name: v.company_name, ownerName: v.owner_name });
   }
 
   return NextResponse.json({ ok: true, vendors: Array.from(grouped.values()) });

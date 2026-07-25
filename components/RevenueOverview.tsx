@@ -25,7 +25,15 @@ type MonthStat = {
   manualCost: number;
   profit: number;
 };
-type CompanyProfit = { key: string; name: string; code: string | null; revenue: number; cost: number; profit: number };
+type CompanyProfit = {
+  key: string;
+  name: string;
+  code: string | null;
+  ownerName: string | null;
+  revenue: number;
+  cost: number;
+  profit: number;
+};
 type ExpenseItem = { month: number; name: string; qty: number; unitPrice: number; total: number };
 type Tab = "월별매출" | "지출상세" | "TOP업체";
 
@@ -115,7 +123,8 @@ export default function RevenueOverview() {
       const [requestsRes, expensesRes] = await Promise.all([
         supabase
           .from("work_requests")
-          .select("company_code, company_name, start_date, unit_price, total_count, real_shipping, delivery_agency")
+          .select("company_code, company_name, owner_name, start_date, unit_price, total_count, real_shipping, delivery_agency")
+          .in("status", ["진행중", "완료"])
           .gte("start_date", start)
           .lt("start_date", end),
         supabase
@@ -156,7 +165,10 @@ export default function RevenueOverview() {
 
         const key = r.company_code || r.company_name || "미상";
         const name = r.company_name || r.company_code || "미상";
-        const entry = byCompany.get(key) || { key, name, code: r.company_code || null, revenue: 0, cost: 0, profit: 0 };
+        const entry =
+          byCompany.get(key) ||
+          { key, name, code: r.company_code || null, ownerName: r.owner_name || null, revenue: 0, cost: 0, profit: 0 };
+        if (!entry.ownerName && r.owner_name) entry.ownerName = r.owner_name;
         entry.revenue += revenue + deliveryBonus;
         entry.cost += reviewCost;
         byCompany.set(key, entry);
@@ -515,6 +527,8 @@ export default function RevenueOverview() {
                 <tr>
                   <th className="px-2 py-1.5 text-center">순위</th>
                   <th className="px-2 py-1.5 text-center">업체코드</th>
+                  <th className="px-2 py-1.5 text-center">업체명</th>
+                  <th className="px-2 py-1.5 text-center">대표자명</th>
                   <th className="px-2 py-1.5 text-center">순수익</th>
                 </tr>
               </thead>
@@ -522,13 +536,15 @@ export default function RevenueOverview() {
                 {topCompanies.map((c, i) => (
                   <tr key={c.key} className="border-b border-neutral-100">
                     <td className="px-2 py-1.5 text-center font-bold">{i + 1}</td>
-                    <td className="px-2 py-1.5 text-center">{c.code || c.name}</td>
+                    <td className="px-2 py-1.5 text-center">{c.code || "-"}</td>
+                    <td className="px-2 py-1.5 text-center">{c.name}</td>
+                    <td className="px-2 py-1.5 text-center">{c.ownerName || "-"}</td>
                     <td className="px-2 py-1.5 text-center font-bold text-emerald-600">{won(c.profit)}</td>
                   </tr>
                 ))}
                 {!topCompanies.length && (
                   <tr>
-                    <td colSpan={3} className="text-center text-neutral-400 py-4">
+                    <td colSpan={5} className="text-center text-neutral-400 py-4">
                       {year}년 데이터가 없습니다
                     </td>
                   </tr>

@@ -207,10 +207,10 @@ export default function SettlementPanel() {
                     <th className="px-2 py-1.5 text-left">날짜</th>
                     <th className="px-2 py-1.5 text-left">업체명</th>
                     <th className="px-2 py-1.5 text-left">제품</th>
+                    <th className="px-2 py-1.5 text-center">리뷰</th>
                     <th className="px-2 py-1.5 text-left">구매자</th>
                     <th className="px-2 py-1.5 text-left">금액</th>
                     <th className="px-2 py-1.5 text-left">계좌</th>
-                    <th className="px-2 py-1.5 text-center">리뷰</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -223,20 +223,23 @@ export default function SettlementPanel() {
                         {r.product_name}
                         {r.option_text ? ` (${r.option_text})` : ""}
                       </td>
-                      <td className="px-2 py-1">{r.buyer || r.receiver || "-"}</td>
-                      <td className="px-2 py-1">
-                        {((Number(r.amount) || 0) + (Number(r.review_fee) || 0)).toLocaleString()}원
-                      </td>
-                      <td className="px-2 py-1 max-w-[140px] truncate">{r.account_text || "-"}</td>
                       <td className="px-2 py-1 text-center">
                         {r.review_url ? (
-                          <button className="underline text-emerald-700 font-bold" onClick={() => setZoomImage(r.review_url)}>
+                          <button
+                            className="underline text-emerald-700 font-bold"
+                            onClick={() => setZoomImage(r.review_url!.split("\n")[0])}
+                          >
                             보기
                           </button>
                         ) : (
                           "-"
                         )}
                       </td>
+                      <td className="px-2 py-1">{r.buyer || r.receiver || "-"}</td>
+                      <td className="px-2 py-1">
+                        {((Number(r.amount) || 0) + (Number(r.review_fee) || 0)).toLocaleString()}원
+                      </td>
+                      <td className="px-2 py-1 max-w-[140px] truncate">{r.account_text || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -346,7 +349,10 @@ export default function SettlementPanel() {
                 <td className="px-2 py-1.5 text-center">₩{((r.amount || 0) + (r.review_fee || 0)).toLocaleString("ko-KR")}</td>
                 <td className="px-2 py-1.5 text-center">
                   {r.review_url ? (
-                    <button className="underline text-emerald-700 font-bold" onClick={() => setZoomImage(r.review_url)}>
+                    <button
+                      className="underline text-emerald-700 font-bold"
+                      onClick={() => setZoomImage(r.review_url!.split("\n")[0])}
+                    >
                       보기
                     </button>
                   ) : (
@@ -371,7 +377,15 @@ export default function SettlementPanel() {
           className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
           onClick={() => setZoomImage(null)}
         >
-          <img src={zoomImage} alt="리뷰 이미지" className="max-w-full max-h-full rounded-xl" />
+          {zoomImage.includes("drive.google.com") ? (
+            <iframe
+              src={zoomImage}
+              className="w-full h-full max-w-3xl max-h-[85vh] rounded-xl bg-white"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img src={zoomImage} alt="리뷰 이미지" className="max-w-full max-h-full rounded-xl" />
+          )}
         </div>
       )}
     </div>

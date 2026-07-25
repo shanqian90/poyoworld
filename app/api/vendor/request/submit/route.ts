@@ -80,7 +80,16 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    const { error: insErr } = await supabase.from("work_requests").insert(rows);
+    const workTotal = rows.reduce((s, r) => s + r.unit_price * r.total_count, 0);
+    const qtySum = rows.reduce((s, r) => s + r.total_count, 0);
+    const deliveryTotal = options.shipAgent === "Y" ? 2500 * qtySum : 0;
+    const subtotal = workTotal + deliveryTotal;
+    const vat = options.taxBill === "Y" ? Math.round(subtotal * 0.1) : 0;
+    const taxFee = options.taxBill === "Y" ? Math.round((subtotal + vat) * 0.1) : 0;
+    const estimatedTotal = subtotal + vat + taxFee;
+    const rowsToInsert = rows.map((r, i) => (i === 0 ? { ...r, deposit_amount: estimatedTotal } : r));
+
+    const { error: insErr } = await supabase.from("work_requests").insert(rowsToInsert);
     if (insErr) throw new Error(insErr.message);
 
     if (realShip) {
@@ -97,7 +106,7 @@ export async function POST(req: NextRequest) {
       adminUrl: `${new URL(req.url).origin}/admin/requests`,
     });
 
-    return NextResponse.json({ ok: true, receiptNo: rNo, count: rows.length });
+    return NextResponse.json({ ok: true, receiptNo: rNo, count: rows.length, estimatedTotal });
   } catch (err) {
     const message = err instanceof Error ? err.message : "제출 중 오류가 발생했습니다";
     return NextResponse.json({ ok: false, message }, { status: 500 });

@@ -18,7 +18,7 @@ export default async function AdminGuidesPage() {
     .order("created_at", { ascending: true });
 
   return (
-    <div className="flex-1 flex flex-col p-3">
+    <div className="flex-1 min-h-0 flex flex-col p-3">
       <AdminGuideTable rows={(data || []) as GuideProduct[]} loadError={error?.message || null} />
     </div>
   );

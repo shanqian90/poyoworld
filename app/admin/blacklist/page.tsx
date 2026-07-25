@@ -12,7 +12,7 @@ export default async function AdminBlacklistPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col p-3 gap-3">
+    <div className="flex-1 min-h-0 flex flex-col p-3 gap-3">
       <div className="flex items-center gap-2">
         <Link href="/admin" className="text-sm font-bold text-neutral-500 underline">
           ← 메인 전체보기

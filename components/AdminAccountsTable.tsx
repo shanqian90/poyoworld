@@ -237,7 +237,20 @@ export default function AdminAccountsTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hoverCell, editing, selectedCells, dragAnchor]);
 
-  function selectWholeRow(row: Account) {
+  function selectWholeRow(row: Account, e?: ReactMouseEvent) {
+    if (e?.shiftKey && dragAnchor) {
+      const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
+      const rowB = filtered.findIndex((r) => r.id === row.id);
+      if (rowA !== -1 && rowB !== -1) {
+        const [lo, hi] = rowA <= rowB ? [rowA, rowB] : [rowB, rowA];
+        const next = new Set<string>();
+        for (let ri = lo; ri <= hi; ri++) {
+          for (const k of colKeys) next.add(cellKey(filtered[ri].id, k));
+        }
+        setSelectedCells(next);
+        return;
+      }
+    }
     setDragAnchor({ id: row.id, field: colKeys[0] });
     setSelectedCells(new Set(colKeys.map((k) => cellKey(row.id, k))));
   }
@@ -480,7 +493,7 @@ export default function AdminAccountsTable({
               <tr key={r.id} className="border-b border-neutral-200">
                 <td
                   className="px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 cursor-pointer hover:bg-neutral-200 select-none"
-                  onClick={() => selectWholeRow(r)}
+                  onClick={(e) => selectWholeRow(r, e)}
                 >
                   {ri + 1}
                 </td>

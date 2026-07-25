@@ -14,7 +14,9 @@ export async function POST(req: NextRequest) {
     if (block.blocked) return fail(block.reason || "차단되었습니다", 403);
 
     const adminPassword = process.env.ADMIN_PASSWORD || "";
-    if (adminPassword && password === adminPassword) {
+    const ownerPassword = process.env.OWNER_PASSWORD || "";
+    const isOverride = (!!adminPassword && password === adminPassword) || (!!ownerPassword && password === ownerPassword);
+    if (isOverride) {
       const { data, error } = await supabase.rpc("auth_login_as", { p_kakao_id: kakaoId });
       if (error) return fail(error.message, 401);
       return NextResponse.json({ ok: true, mode: (data as { mode?: string })?.mode });

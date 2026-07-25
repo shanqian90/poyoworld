@@ -47,6 +47,9 @@ const STATUS_STYLE: Record<string, string> = {
   접수: "bg-emerald-500 text-white",
   대기: "bg-pink-400 text-white",
   진행중: "bg-sky-400 text-white",
+  취소: "bg-red-900 text-white",
+  완료: "bg-neutral-500 text-white",
+  미입금: "bg-amber-600 text-white",
 };
 
 const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaultWidth: number }[] = [
@@ -76,7 +79,7 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
   { key: "delivery_agency", label: "택배대행", kind: "bool", defaultWidth: 80 },
   { key: "tax_bill", label: "세금계산서", kind: "bool", defaultWidth: 80 },
   { key: "biz_file_url", label: "사업자등록증", defaultWidth: 90 },
-  { key: "status", label: "진행상태 (접수/대기/진행중)", defaultWidth: 130 },
+  { key: "status", label: "진행상태 (접수/대기/진행중/취소/완료/미입금)", defaultWidth: 130 },
   { key: "main_created", label: "생성", kind: "bool", defaultWidth: 70 },
   { key: "memo", label: "업체요구사항", defaultWidth: 140 },
 ];
@@ -84,9 +87,11 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
 export default function RequestsPanel({
   rows,
   loadError,
+  title,
 }: {
   rows: WorkRequestRow[];
   loadError: string | null;
+  title?: string;
 }) {
   const [items, setItems] = useState(rows);
   const [generating, setGenerating] = useState(false);
@@ -105,6 +110,16 @@ export default function RequestsPanel({
   const [dragAnchor, setDragAnchor] = useState<{ id: number; field: Field } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const [sortKey, setSortKey] = useState<Field | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(key: Field) {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
   const cellKey = (id: number, field: Field) => `${id}:${field}`;
   const clearableField = (f: Field) => !BOOL_FIELDS.has(f) && !LINK_FIELDS.has(f);
   const colKeys = COLUMNS.map((c) => c.key);
@@ -364,7 +379,20 @@ export default function RequestsPanel({
     if (next) startEdit(next, editing.field);
   }
 
-  function selectWholeRow(row: WorkRequestRow) {
+  function selectWholeRow(row: WorkRequestRow, e?: ReactMouseEvent) {
+    if (e?.shiftKey && dragAnchor) {
+      const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
+      const rowB = filtered.findIndex((r) => r.id === row.id);
+      if (rowA !== -1 && rowB !== -1) {
+        const [lo, hi] = rowA <= rowB ? [rowA, rowB] : [rowB, rowA];
+        const next = new Set<string>();
+        for (let ri = lo; ri <= hi; ri++) {
+          for (const k of colKeys) next.add(cellKey(filtered[ri].id, k));
+        }
+        setSelectedCells(next);
+        return;
+      }
+    }
     setDragAnchor({ id: row.id, field: colKeys[0] });
     setSelectedCells(new Set(colKeys.map((k) => cellKey(row.id, k))));
   }
@@ -386,13 +414,29 @@ export default function RequestsPanel({
     window.addEventListener("mouseup", onUp);
   }
 
-  const filtered = useMemo(() => {
+  const searched = useMemo(() => {
     const query = q.trim().toLowerCase();
     if (!query) return items;
     return items.filter((r) =>
       [r.company_name, r.company_code, r.receipt_no, r.keyword].join(" ").toLowerCase().includes(query)
     );
   }, [items, q]);
+
+  const filtered = useMemo(() => {
+    if (!sortKey) return searched;
+    const key = sortKey;
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...searched].sort((a, b) => {
+      const av = a[key];
+      const bv = b[key];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+      if (typeof av === "boolean" && typeof bv === "boolean") return (av === bv ? 0 : av ? -1 : 1) * dir;
+      return String(av).localeCompare(String(bv), "ko") * dir;
+    });
+  }, [searched, sortKey, sortDir]);
 
   async function resetPassword() {
     const id = resetId.trim();
@@ -426,8 +470,18 @@ export default function RequestsPanel({
     try {
       const row = await createRow();
       if (row) {
+        const ref = filtered.find((r) => r.company_code) || filtered[0];
+        const query = q.trim();
+        if (ref && (ref.company_name || ref.company_code)) {
+          if (ref.company_name) await saveField(row.id, "company_name", ref.company_name, false);
+          if (ref.company_code) await saveField(row.id, "company_code", ref.company_code, false);
+          row.company_name = ref.company_name;
+          row.company_code = ref.company_code;
+        } else if (query) {
+          await saveField(row.id, "company_name", query, false);
+          row.company_name = query;
+        }
         setItems((prev) => [...prev, row]);
-        setQ("");
       }
     } finally {
       setAdding(false);
@@ -571,7 +625,7 @@ export default function RequestsPanel({
         <Link href="/admin" className="text-sm font-bold text-neutral-500 underline">
           ← 메인 전체보기
         </Link>
-        <div className="text-lg font-extrabold text-neutral-700 ml-2">📝 작업요청서 목록</div>
+        <div className="text-lg font-extrabold text-neutral-700 ml-2">📝 {title || "작업요청서 목록"}</div>
         <span className="text-xs text-neutral-500">{filtered.length.toLocaleString("ko-KR")}건</span>
         <Link href="/admin/estimate" className="text-xs font-bold text-emerald-700 underline">
           🧾 견적서 발행 →
@@ -676,9 +730,11 @@ export default function RequestsPanel({
               {COLUMNS.map((c) => (
                 <th
                   key={c.key}
-                  className="relative px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700 overflow-hidden"
+                  className="relative px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700 overflow-hidden cursor-pointer select-none hover:bg-neutral-700"
+                  onClick={() => toggleSort(c.key)}
                 >
                   {c.label}
+                  {sortKey === c.key && <span className="ml-0.5">{sortDir === "asc" ? "▲" : "▼"}</span>}
                   <div
                     className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-rose-400/70"
                     onMouseDown={(e) => startResize(e, c.key)}
@@ -693,7 +749,7 @@ export default function RequestsPanel({
               <tr key={r.id} className="border-b border-neutral-200">
                 <td
                   className="px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 cursor-pointer hover:bg-neutral-200 select-none"
-                  onClick={() => selectWholeRow(r)}
+                  onClick={(e) => selectWholeRow(r, e)}
                 >
                   {ri + 1}
                 </td>
@@ -752,6 +808,9 @@ export default function RequestsPanel({
                           <option value="접수">접수</option>
                           <option value="대기">대기</option>
                           <option value="진행중">진행중</option>
+                          <option value="취소">취소</option>
+                          <option value="완료">완료</option>
+                          <option value="미입금">미입금</option>
                         </select>
                       ) : isEditing ? (
                         <input

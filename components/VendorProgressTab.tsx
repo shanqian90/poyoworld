@@ -64,6 +64,8 @@ export default function VendorProgressTab({ companyCode, companyName }: { compan
   const [keyword, setKeyword] = useState("");
   const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set());
   const [exportBusy, setExportBusy] = useState(false);
+  const [zipBusy, setZipBusy] = useState(false);
+  const [zipProgress, setZipProgress] = useState("");
   const [toast, setToast] = useState("");
 
   useEffect(() => {
@@ -213,6 +215,58 @@ export default function VendorProgressTab({ companyCode, companyName }: { compan
       XLSX.writeFile(wb, `${companyCode || companyName}_${pname}.xlsx`);
     } finally {
       setExportBusy(false);
+    }
+  }
+
+  async function doZipDownload() {
+    const targets: { url: string; name: string }[] = [];
+    curRows.forEach((r) => {
+      const urls = (r.review_url || "").split("\n").map((u) => u.trim()).filter(Boolean);
+      urls.forEach((u, i) => {
+        const ext = (u.split("?")[0].split(".").pop() || "jpg").slice(0, 5);
+        const label = r.order_no || r.buyer || String(r.id);
+        targets.push({ url: u, name: `${fmtDay(r.date_mmdd).replace("/", "-")}_${label}${urls.length > 1 ? `_${i + 1}` : ""}.${ext}` });
+      });
+    });
+    if (!targets.length) {
+      alert("다운로드할 리뷰 이미지가 없습니다");
+      return;
+    }
+    setZipBusy(true);
+    setZipProgress(`0/${targets.length}`);
+    try {
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      const usedNames = new Map<string, number>();
+      for (let i = 0; i < targets.length; i++) {
+        const t = targets[i];
+        try {
+          const res = await fetch(t.url);
+          const blob = await res.blob();
+          let name = t.name;
+          const count = usedNames.get(name) || 0;
+          if (count > 0) {
+            const dot = name.lastIndexOf(".");
+            name = dot >= 0 ? `${name.slice(0, dot)}(${count})${name.slice(dot)}` : `${name}(${count})`;
+          }
+          usedNames.set(t.name, count + 1);
+          zip.file(name, blob);
+        } catch {
+          /* 개별 이미지 다운로드 실패는 건너뛰고 계속 진행 */
+        }
+        setZipProgress(`${i + 1}/${targets.length}`);
+      }
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      const pname = product === "전체보기" ? "전체" : product;
+      a.href = url;
+      a.download = `${companyCode || companyName}_${pname}_리뷰이미지.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setZipBusy(false);
+      setZipProgress("");
     }
   }
 
@@ -391,16 +445,27 @@ export default function VendorProgressTab({ companyCode, companyName }: { compan
         style={{ background: THEME.card, border: `0.5px solid ${THEME.bd}` }}
       >
         <div className="text-[13px]" style={{ color: THEME.mut }}>
-          현재 보이는 데이터를 엑셀로 내보냅니다 ({curRows.length}건)
+          현재 보이는 데이터를 내보냅니다 ({curRows.length}건)
+          {zipBusy && zipProgress && <span className="ml-2">이미지 다운로드 중... {zipProgress}</span>}
         </div>
-        <button
-          className="text-white text-sm font-medium rounded-lg px-4 py-2 disabled:opacity-60"
-          style={{ background: THEME.gd }}
-          onClick={doExport}
-          disabled={exportBusy}
-        >
-          {exportBusy ? "생성 중..." : "엑셀 다운로드"}
-        </button>
+        <div className="flex gap-2 shrink-0">
+          <button
+            className="text-sm font-medium rounded-lg px-4 py-2 disabled:opacity-60"
+            style={{ background: THEME.iv2, color: THEME.gd, border: `0.5px solid ${THEME.bd2}` }}
+            onClick={doZipDownload}
+            disabled={zipBusy}
+          >
+            {zipBusy ? "압축 중..." : "📷 리뷰이미지 전체다운로드"}
+          </button>
+          <button
+            className="text-white text-sm font-medium rounded-lg px-4 py-2 disabled:opacity-60"
+            style={{ background: THEME.gd }}
+            onClick={doExport}
+            disabled={exportBusy}
+          >
+            {exportBusy ? "생성 중..." : "엑셀 다운로드"}
+          </button>
+        </div>
       </div>
 
       {curRows.length === 0 ? (

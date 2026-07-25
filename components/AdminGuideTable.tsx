@@ -263,7 +263,20 @@ export default function AdminGuideTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hoverCell, editing, selectedCells, dragAnchor]);
 
-  function selectWholeRow(row: GuideProduct) {
+  function selectWholeRow(row: GuideProduct, e?: ReactMouseEvent) {
+    if (e?.shiftKey && dragAnchor) {
+      const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
+      const rowB = filtered.findIndex((r) => r.id === row.id);
+      if (rowA !== -1 && rowB !== -1) {
+        const [lo, hi] = rowA <= rowB ? [rowA, rowB] : [rowB, rowA];
+        const next = new Set<string>();
+        for (let ri = lo; ri <= hi; ri++) {
+          for (const k of colKeys) next.add(cellKey(filtered[ri].id, k));
+        }
+        setSelectedCells(next);
+        return;
+      }
+    }
     setDragAnchor({ id: row.id, field: colKeys[0] });
     setSelectedCells(new Set(colKeys.map((k) => cellKey(row.id, k))));
   }
@@ -286,8 +299,73 @@ export default function AdminGuideTable({
   }
 
   const [activeOnly, setActiveOnly] = useState(false);
+  const [sortKey, setSortKey] = useState<Field | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [columnFilters, setColumnFilters] = useState<Partial<Record<Field, Set<string>>>>({});
+  const [openFilterKey, setOpenFilterKey] = useState<Field | null>(null);
+  const [filterSearch, setFilterSearch] = useState("");
 
-  const filtered = useMemo(() => {
+  function toggleSort(key: Field) {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  function getSelectedSet(key: Field): Set<string> {
+    return columnFilters[key] || new Set(distinctValues[key] || []);
+  }
+
+  function toggleFilterValue(key: Field, value: string) {
+    setColumnFilters((prev) => {
+      const current = new Set(prev[key] || distinctValues[key] || []);
+      if (current.has(value)) current.delete(value);
+      else current.add(value);
+      const next = { ...prev };
+      if (current.size >= (distinctValues[key]?.length || 0)) delete next[key];
+      else next[key] = current;
+      return next;
+    });
+  }
+
+  function selectAllFilter(key: Field) {
+    setColumnFilters((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function clearAllFilter(key: Field) {
+    setColumnFilters((prev) => ({ ...prev, [key]: new Set() }));
+  }
+
+  function clearAllFilters() {
+    setColumnFilters({});
+  }
+
+  const [filterPos, setFilterPos] = useState<{ left: number; top: number } | null>(null);
+  const filterPanelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!openFilterKey) return;
+    function onDocClick(e: MouseEvent) {
+      if (filterPanelRef.current && !filterPanelRef.current.contains(e.target as Node)) {
+        setOpenFilterKey(null);
+      }
+    }
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [openFilterKey]);
+
+  function valueLabel(col: (typeof COLUMNS)[number], row: GuideProduct): string {
+    const v = row[col.key];
+    if (col.kind === "toggle") return v ? "예" : "아니오";
+    if (v == null || v === "") return "(빈 값)";
+    return String(v);
+  }
+
+  const searched = useMemo(() => {
     const query = q.trim().toLowerCase();
     return rows.filter((r) => {
       if (activeOnly && !r.active) return false;
@@ -295,6 +373,58 @@ export default function AdminGuideTable({
       return [r.company, r.short_name, r.full_name, r.code, r.platform].join(" ").toLowerCase().includes(query);
     });
   }, [rows, q, activeOnly]);
+
+  const distinctValues = useMemo(() => {
+    const map = {} as Record<Field, string[]>;
+    for (const col of COLUMNS) {
+      const set = new Set<string>();
+      searched.forEach((r) => set.add(valueLabel(col, r)));
+      map[col.key] = Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searched]);
+
+  const columnFilteredRows = useMemo(() => {
+    const keys = Object.keys(columnFilters) as Field[];
+    if (!keys.length) return searched;
+    return searched.filter((r) =>
+      keys.every((k) => {
+        const set = columnFilters[k];
+        if (!set) return true;
+        const col = COLUMNS.find((c) => c.key === k);
+        if (!col) return true;
+        return set.has(valueLabel(col, r));
+      })
+    );
+  }, [searched, columnFilters]);
+
+  const filtered = useMemo(() => {
+    if (sortKey) {
+      const dir = sortDir === "asc" ? 1 : -1;
+      return [...columnFilteredRows].sort((a, b) => {
+        const av = a[sortKey];
+        const bv = b[sortKey];
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+        if (typeof av === "boolean" && typeof bv === "boolean") return (av === bv ? 0 : av ? -1 : 1) * dir;
+        return String(av).localeCompare(String(bv), "ko") * dir;
+      });
+    }
+    return columnFilteredRows
+      .map((r, i) => ({ r, i }))
+      .sort((a, b) => {
+        const na = Number(a.r.number_text);
+        const nb = Number(b.r.number_text);
+        const va = a.r.number_text && !Number.isNaN(na) ? na : Infinity;
+        const vb = b.r.number_text && !Number.isNaN(nb) ? nb : Infinity;
+        if (va !== vb) return va - vb;
+        return a.i - b.i;
+      })
+      .map((x) => x.r);
+  }, [columnFilteredRows, sortKey, sortDir]);
 
   async function saveField(id: string, field: Field, value: string | number | boolean | null, pushUndo = true) {
     if (pushUndo) {
@@ -555,6 +685,14 @@ export default function AdminGuideTable({
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        {Object.keys(columnFilters).length > 0 && (
+          <button
+            className="text-xs bg-rose-100 text-rose-700 rounded-lg px-3 py-1.5 font-bold border border-rose-300"
+            onClick={clearAllFilters}
+          >
+            ✕ 필터 초기화 ({Object.keys(columnFilters).length})
+          </button>
+        )}
         <button
           className="text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
           onClick={autofillAll}
@@ -600,18 +738,40 @@ export default function AdminGuideTable({
           <thead className="sticky top-0 bg-neutral-800 text-white z-10">
             <tr>
               <th className="px-1 py-2 text-center border-r border-neutral-700"></th>
-              {COLUMNS.map((c) => (
-                <th
-                  key={c.key}
-                  className="relative px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700 overflow-hidden"
-                >
-                  {c.label}
-                  <div
-                    className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-rose-400/70"
-                    onMouseDown={(e) => startResize(e, c.key)}
-                  />
-                </th>
-              ))}
+              {COLUMNS.map((c) => {
+                const hasFilter = !!columnFilters[c.key];
+                return (
+                  <th key={c.key} className="relative px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700">
+                    <span className="cursor-pointer select-none hover:underline" onClick={() => toggleSort(c.key)}>
+                      {c.label}
+                      {sortKey === c.key && <span className="ml-0.5">{sortDir === "asc" ? "▲" : "▼"}</span>}
+                    </span>
+                    <button
+                      className={`ml-1 text-[10px] leading-none align-middle ${
+                        hasFilter ? "text-amber-400" : "text-neutral-400 hover:text-white"
+                      }`}
+                      title="필터"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (openFilterKey === c.key) {
+                          setOpenFilterKey(null);
+                          return;
+                        }
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setFilterPos({ left: rect.left, top: rect.bottom + 4 });
+                        setFilterSearch("");
+                        setOpenFilterKey(c.key);
+                      }}
+                    >
+                      ▾
+                    </button>
+                    <div
+                      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-rose-400/70"
+                      onMouseDown={(e) => startResize(e, c.key)}
+                    />
+                  </th>
+                );
+              })}
               <th className="px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700">가이드</th>
               <th className="px-2 py-2 text-center whitespace-nowrap"></th>
             </tr>
@@ -621,7 +781,7 @@ export default function AdminGuideTable({
               <tr key={r.id} className="border-b border-neutral-200">
                 <td
                   className="px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 cursor-pointer hover:bg-neutral-200 select-none"
-                  onClick={() => selectWholeRow(r)}
+                  onClick={(e) => selectWholeRow(r, e)}
                 >
                   {ri + 1}
                 </td>
@@ -752,6 +912,59 @@ export default function AdminGuideTable({
       </div>
 
       {guideRow && <KakaoGuideModal row={guideRow} onClose={() => setGuideRow(null)} />}
+
+      {openFilterKey && filterPos && (
+        <div
+          ref={filterPanelRef}
+          className="fixed z-50 bg-white border border-neutral-300 rounded-lg shadow-xl w-56 max-h-80 flex flex-col text-xs text-neutral-800"
+          style={{ left: filterPos.left, top: filterPos.top }}
+        >
+          <div className="p-2 border-b border-neutral-200">
+            <input
+              autoFocus
+              className="w-full border border-neutral-300 rounded px-2 py-1 text-xs"
+              placeholder="값 검색"
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center justify-between px-2 py-1 border-b border-neutral-100 text-neutral-500">
+            <button className="hover:underline" onClick={() => selectAllFilter(openFilterKey)}>
+              전체 선택
+            </button>
+            <button className="hover:underline" onClick={() => clearAllFilter(openFilterKey)}>
+              전체 해제
+            </button>
+          </div>
+          <div className="overflow-y-auto flex-1 p-1">
+            {(distinctValues[openFilterKey] || [])
+              .filter((v) => v.toLowerCase().includes(filterSearch.toLowerCase()))
+              .map((v) => {
+                const selected = getSelectedSet(openFilterKey).has(v);
+                return (
+                  <label
+                    key={v}
+                    className="flex items-center gap-1.5 px-1.5 py-1 rounded hover:bg-neutral-100 cursor-pointer"
+                  >
+                    <input type="checkbox" checked={selected} onChange={() => toggleFilterValue(openFilterKey, v)} />
+                    <span className="truncate">{v}</span>
+                  </label>
+                );
+              })}
+            {!(distinctValues[openFilterKey] || []).length && (
+              <div className="text-center text-neutral-400 py-3">값이 없습니다</div>
+            )}
+          </div>
+          <div className="p-1.5 border-t border-neutral-200 text-right">
+            <button
+              className="text-emerald-700 font-bold px-2 py-1 hover:underline"
+              onClick={() => setOpenFilterKey(null)}
+            >
+              확인
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

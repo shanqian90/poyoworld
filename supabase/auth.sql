@@ -119,7 +119,8 @@ $$;
 
 grant execute on function auth_change_password(text, text, text) to anon, authenticated;
 
--- ── 관리자 대리 로그인: 이미 존재하는 아이디인지만 확인 (비밀번호 검증은 Next.js 쪽에서 관리자 비밀번호로 처리) ──
+-- ── 관리자 대리 로그인: 비밀번호 검증은 Next.js 쪽에서 관리자 비밀번호로 이미 처리됨.
+--    처음 보는 아이디(예: 로그인을 한 번도 안 해본 업체)라도 여기서 바로 등록해서 대리 로그인이 항상 가능하게 한다 ──
 create or replace function auth_login_as(p_kakao_id text)
 returns json
 language plpgsql
@@ -130,12 +131,12 @@ declare
   v_row users%rowtype;
 begin
   if p_kakao_id is null or trim(p_kakao_id) = '' then
-    raise exception '카카오톡 아이디를 입력해주세요';
+    raise exception '아이디를 입력해주세요';
   end if;
 
   select * into v_row from users where lower(kakao_id) = lower(p_kakao_id) limit 1;
   if v_row.id is null then
-    raise exception '존재하지 않는 아이디입니다';
+    insert into users (kakao_id, password_hash) values (p_kakao_id, null);
   end if;
 
   return json_build_object('ok', true, 'mode', 'admin_override');

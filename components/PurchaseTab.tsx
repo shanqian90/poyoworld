@@ -107,6 +107,11 @@ export default function PurchaseTab({
   const options: SlotOption[] = productName ? slotMap[productName] || [] : [];
   const selectedOption = options.find((o) => o.value === optionNo);
 
+  useEffect(() => {
+    if (options.length === 1) setOptionNo(options[0].value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productName, slotMap]);
+
   const checkedAccounts = useMemo(
     () => accounts.filter((a) => accState[a.id]?.checked),
     [accounts, accState]
@@ -292,13 +297,13 @@ export default function PurchaseTab({
             <select
               className="w-full border border-rose-200 rounded-xl px-3 py-2 text-sm bg-white"
               value={optionNo}
-              disabled={!options.length}
+              disabled={!options.length || options.length === 1}
               onChange={(e) => setOptionNo(e.target.value)}
             >
               <option value="">옵션 선택</option>
               {options.map((o) => (
                 <option key={o.value} value={o.value}>
-                  {o.label} ({o.total - o.remaining}/{o.total})
+                  {o.label}
                 </option>
               ))}
             </select>
