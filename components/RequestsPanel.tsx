@@ -88,12 +88,34 @@ export default function RequestsPanel({
   rows,
   loadError,
   title,
+  fetchUrl,
 }: {
   rows: WorkRequestRow[];
   loadError: string | null;
   title?: string;
+  fetchUrl?: string;
 }) {
   const [items, setItems] = useState(rows);
+  const [fetching, setFetching] = useState(!!fetchUrl);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!fetchUrl) return;
+    setFetching(true);
+    fetch(fetchUrl)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.ok) {
+          setFetchError(data.message || "불러오기 실패");
+          return;
+        }
+        setItems(data.rows || []);
+        if (data.loadError) setFetchError(data.loadError);
+      })
+      .catch(() => setFetchError("불러오는 중 오류가 발생했습니다"))
+      .finally(() => setFetching(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchUrl]);
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState("");
   const [resetId, setResetId] = useState("");
@@ -748,9 +770,12 @@ export default function RequestsPanel({
         {resetMsg && <span className="text-xs shrink-0">{resetMsg}</span>}
       </div>
 
-      {loadError && (
-        <div className="bg-rose-100 border border-rose-300 text-rose-700 text-sm rounded-xl px-3 py-2">{loadError}</div>
+      {(loadError || fetchError) && (
+        <div className="bg-rose-100 border border-rose-300 text-rose-700 text-sm rounded-xl px-3 py-2">
+          {loadError || fetchError}
+        </div>
       )}
+      {fetching && <div className="text-center text-sm text-neutral-500 font-bold py-2">🌸 불러오는 중...</div>}
       {result && (
         <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 text-sm rounded-xl px-3 py-2 whitespace-pre-line">
           {result}
