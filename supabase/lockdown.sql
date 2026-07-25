@@ -46,8 +46,8 @@ create policy whitelist_delete on whitelist for delete using (false);
 drop policy if exists vendor_payments_all on vendor_payments;
 create policy vendor_payments_all on vendor_payments for all using (false) with check (false);
 
-drop policy if exists review_complete_seen_all on review_complete_seen;
-create policy review_complete_seen_all on review_complete_seen for all using (false) with check (false);
+-- review_complete_seen: 코드에는 있지만 실제 DB에는 테이블이 생성된 적이
+-- 없어서 (schema.sql의 이 부분이 실행된 적 없음) 건너뜁니다.
 
 drop policy if exists notices_all on notices;
 create policy notices_all on notices for all using (false) with check (false);

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearVendorLoginId, getVendorLoginId } from "@/lib/vendorSession";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabaseClient";
 import WorkRequestForm from "@/components/WorkRequestForm";
 import RecentRequests, { WorkRequestReuse } from "@/components/RecentRequests";
 import VendorProgressTab from "@/components/VendorProgressTab";

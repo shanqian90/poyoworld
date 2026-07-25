@@ -2,9 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { supabase } from "@/lib/supabase";
 import { STAFF_COOKIE, STAFF_REMEMBER_MAX_AGE, STAFF_SESSION_MAX_AGE, signStaffToken } from "@/lib/staffAuth";
+import { checkRateLimit, getClientIp, recordFailedAttempt } from "@/lib/loginRateLimit";
 
 export async function POST(req: NextRequest) {
+  const ip = getClientIp(req);
   try {
+    const limited = await checkRateLimit(ip, "staff-login");
+    if (limited.blocked) return fail(limited.message!, 429);
+
     const body = await req.json();
     const loginId = String(body.loginId || "").trim();
     const password = String(body.password || "");
@@ -17,7 +22,10 @@ export async function POST(req: NextRequest) {
       ownerPassword && password === ownerPassword
         ? await supabase.rpc("staff_login_as", { p_login_id: loginId })
         : await supabase.rpc("staff_login", { p_login_id: loginId, p_password: password });
-    if (error) return fail(error.message, 401);
+    if (error) {
+      await recordFailedAttempt(ip, "staff-login");
+      return fail(error.message, 401);
+    }
 
     const result = data as { staffId: string; name: string; mode: string };
     const cookieStore = await cookies();

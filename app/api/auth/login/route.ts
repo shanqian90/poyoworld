@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { checkBlocked } from "@/lib/blacklist";
+import { checkRateLimit, getClientIp, recordFailedAttempt } from "@/lib/loginRateLimit";
 
 export async function POST(req: NextRequest) {
+  const ip = getClientIp(req);
   try {
+    const limited = await checkRateLimit(ip, "auth-login");
+    if (limited.blocked) return fail(limited.message!, 429);
+
     const body = await req.json();
     const kakaoId = String(body.kakaoId || "").trim();
     const password = String(body.password || "");
@@ -18,7 +23,10 @@ export async function POST(req: NextRequest) {
     const isOverride = (!!adminPassword && password === adminPassword) || (!!ownerPassword && password === ownerPassword);
     if (isOverride) {
       const { data, error } = await supabase.rpc("auth_login_as", { p_kakao_id: kakaoId });
-      if (error) return fail(error.message, 401);
+      if (error) {
+        await recordFailedAttempt(ip, "auth-login");
+        return fail(error.message, 401);
+      }
       return NextResponse.json({ ok: true, mode: (data as { mode?: string })?.mode });
     }
 
@@ -26,7 +34,10 @@ export async function POST(req: NextRequest) {
       p_kakao_id: kakaoId,
       p_password: password,
     });
-    if (error) return fail(error.message, 401);
+    if (error) {
+      await recordFailedAttempt(ip, "auth-login");
+      return fail(error.message, 401);
+    }
 
     return NextResponse.json({ ok: true, mode: (data as { mode?: string })?.mode });
   } catch (err) {
