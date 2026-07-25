@@ -40,11 +40,33 @@ const COLUMNS: { key: Field; label: string; align?: "right"; kind?: Kind; defaul
 export default function AdminGuideTable({
   rows: initialRows,
   loadError,
+  fetchUrl,
 }: {
   rows: GuideProduct[];
   loadError: string | null;
+  fetchUrl?: string;
 }) {
   const [rows, setRows] = useState(initialRows);
+  const [fetching, setFetching] = useState(!!fetchUrl);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!fetchUrl) return;
+    setFetching(true);
+    fetch(fetchUrl)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.ok) {
+          setFetchError(data.message || "불러오기 실패");
+          return;
+        }
+        setRows(data.rows || []);
+        if (data.loadError) setFetchError(data.loadError);
+      })
+      .catch(() => setFetchError("불러오는 중 오류가 발생했습니다"))
+      .finally(() => setFetching(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchUrl]);
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<{ id: string; field: Field } | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -716,11 +738,12 @@ export default function AdminGuideTable({
         </button>
       </div>
 
-      {loadError && (
+      {(loadError || fetchError) && (
         <div className="bg-rose-100 border border-rose-300 text-rose-700 text-sm rounded-xl px-3 py-2">
-          {loadError}
+          {loadError || fetchError}
         </div>
       )}
+      {fetching && <div className="text-center text-sm text-neutral-500 font-bold py-2">🌸 불러오는 중...</div>}
 
       <div className="border border-neutral-300 rounded-xl overflow-auto flex-1">
         <table
