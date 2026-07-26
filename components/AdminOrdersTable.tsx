@@ -263,6 +263,7 @@ export default function AdminOrdersTable({
   }
 
   useEffect(() => {
+    if (mode === "full") return;
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
       const inInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
@@ -716,18 +717,28 @@ export default function AdminOrdersTable({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ year: bulkYear, month: bulkMonth }),
       });
-      const data = await res.json();
-      if (!data.ok) {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         alert(data.message || "삭제 실패");
         return;
       }
-      setRows((prev) =>
-        prev.filter((r) => {
-          const d = resolvedDate(r);
-          return !(d.getFullYear() === bulkYear && d.getMonth() + 1 === bulkMonth);
-        })
-      );
-      alert(`✅ ${data.deleted}건 삭제되었습니다`);
+      const deletedIds: number[] = JSON.parse(res.headers.get("X-Deleted-Ids") || "[]");
+      const deletedCount = res.headers.get("X-Deleted-Count") || String(deletedIds.length);
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const m = disposition.match(/filename\*=UTF-8''([^;]+)/);
+      const filename = m ? decodeURIComponent(m[1]) : `${bulkYear}년${bulkMonth}월_삭제백업.xlsx`;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      const idSet = new Set(deletedIds);
+      setRows((prev) => prev.filter((r) => !idSet.has(r.id)));
+      alert(`✅ 엑셀 다운로드 후 ${deletedCount}건 삭제되었습니다`);
+    } catch {
+      alert("삭제 중 오류가 발생했습니다");
     } finally {
       setBulkDeleting(false);
     }
@@ -838,7 +849,8 @@ export default function AdminOrdersTable({
       <div className="flex items-center gap-2">
         <div className="text-lg font-extrabold text-neutral-700">{title}</div>
         <span className="text-xs text-neutral-500">{filtered.length.toLocaleString("ko-KR")}건</span>
-        <span className="text-xs text-neutral-400">셀을 클릭하면 바로 수정할 수 있어요</span>
+        {mode === "active" && <span className="text-xs text-neutral-400">셀을 클릭하면 바로 수정할 수 있어요</span>}
+        {mode === "full" && <span className="text-xs text-neutral-400">보기 전용입니다</span>}
         <div className="flex-1" />
         <input
           className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm w-24"
@@ -866,13 +878,15 @@ export default function AdminOrdersTable({
         >
           {checkingReview ? "확인 중..." : "📋 업체리뷰확인"}
         </button>
-        <button
-          className="text-xs bg-neutral-800 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
-          onClick={addRow}
-          disabled={adding}
-        >
-          {adding ? "추가 중..." : "+ 새 행 추가"}
-        </button>
+        {mode === "active" && (
+          <button
+            className="text-xs bg-neutral-800 text-white rounded-lg px-3 py-1.5 font-bold disabled:opacity-60"
+            onClick={addRow}
+            disabled={adding}
+          >
+            {adding ? "추가 중..." : "+ 새 행 추가"}
+          </button>
+        )}
         <button className="text-xs border border-neutral-300 rounded-lg px-3 py-1.5 font-bold text-neutral-600" onClick={doLogout}>
           로그아웃
         </button>
@@ -1004,8 +1018,10 @@ export default function AdminOrdersTable({
             {filtered.map((r, ri) => (
               <tr key={r.id} className="border-b border-neutral-200">
                 <td
-                  className="px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 cursor-pointer hover:bg-neutral-200 select-none"
-                  onClick={(e) => selectWholeRow(r, e)}
+                  className={`px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 select-none ${
+                    mode === "active" ? "cursor-pointer hover:bg-neutral-200" : ""
+                  }`}
+                  onClick={mode === "active" ? (e) => selectWholeRow(r, e) : undefined}
                 >
                   {ri + 1}
                 </td>
@@ -1013,17 +1029,30 @@ export default function AdminOrdersTable({
                   if (c.kind === "toggle") {
                     const on = !!r[c.key];
                     const [onLabel, offLabel] = TOGGLE_LABELS[c.key] || ["완료", "대기"];
+                    const badge = (
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                          on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
+                        }`}
+                      >
+                        {on ? onLabel : offLabel}
+                      </span>
+                    );
                     return (
                       <td key={c.key} className="px-2 py-1.5 border-r border-neutral-200 text-center overflow-hidden">
-                        <button
-                          className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                            on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
-                          }`}
-                          onClick={() => toggleBool(r, c.key as "review_done" | "paid")}
-                          disabled={savingId === r.id}
-                        >
-                          {on ? onLabel : offLabel}
-                        </button>
+                        {mode === "active" ? (
+                          <button
+                            className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                              on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
+                            }`}
+                            onClick={() => toggleBool(r, c.key as "review_done" | "paid")}
+                            disabled={savingId === r.id}
+                          >
+                            {on ? onLabel : offLabel}
+                          </button>
+                        ) : (
+                          badge
+                        )}
                       </td>
                     );
                   }
@@ -1053,19 +1082,29 @@ export default function AdminOrdersTable({
                         .map((s) => s.trim())
                         .filter(Boolean)
                     : [];
-                  const isSelected = selectedCells.has(cellKey(r.id, c.key));
+                  const isSelected = mode === "active" && selectedCells.has(cellKey(r.id, c.key));
                   return (
                     <td
                       key={c.key}
-                      className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis select-none"
+                      className={`px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center overflow-hidden text-ellipsis select-none ${
+                        mode === "active" ? "cursor-text hover:bg-black/5" : ""
+                      }`}
                       style={{ backgroundColor: flagBg, boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined }}
-                      onDoubleClick={() => !isEditing && startEdit(r, c.key)}
-                      onMouseDown={() => startDrag(r, c.key)}
-                      onMouseEnter={() => {
-                        setHoverCell({ id: r.id, field: c.key });
-                        dragOver(r, c.key);
-                      }}
-                      onMouseLeave={() => setHoverCell((h) => (h && h.id === r.id && h.field === c.key ? null : h))}
+                      onDoubleClick={mode === "active" ? () => !isEditing && startEdit(r, c.key) : undefined}
+                      onMouseDown={mode === "active" ? () => startDrag(r, c.key) : undefined}
+                      onMouseEnter={
+                        mode === "active"
+                          ? () => {
+                              setHoverCell({ id: r.id, field: c.key });
+                              dragOver(r, c.key);
+                            }
+                          : undefined
+                      }
+                      onMouseLeave={
+                        mode === "active"
+                          ? () => setHoverCell((h) => (h && h.id === r.id && h.field === c.key ? null : h))
+                          : undefined
+                      }
                       title={flagTitle || (c.key === "date_mmdd" ? guessFullDate(r) : typeof val === "string" ? val : undefined)}
                     >
                       {isEditing && c.key === "date_mmdd" ? (
@@ -1133,13 +1172,15 @@ export default function AdminOrdersTable({
                   );
                 })}
                 <td className="px-2 py-1.5">
-                  <button
-                    className="text-neutral-400 hover:text-rose-600 font-bold px-1"
-                    onClick={() => deleteRow(r.id)}
-                    title={mode === "active" ? "체험단진행에서 숨기기 (전체보기에는 남아있음)" : "행 삭제"}
-                  >
-                    ✕
-                  </button>
+                  {mode === "active" && (
+                    <button
+                      className="text-neutral-400 hover:text-rose-600 font-bold px-1"
+                      onClick={() => deleteRow(r.id)}
+                      title="체험단진행에서 숨기기 (전체보기에는 남아있음)"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

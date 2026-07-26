@@ -25,17 +25,20 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const { id } = await ctx.params;
   const body = await req.json();
-  const field = String(body.field || "");
-  if (!EDITABLE_FIELDS.has(field)) {
-    return NextResponse.json({ ok: false, message: "수정할 수 없는 항목입니다" }, { status: 400 });
+  const fieldsInput: Record<string, unknown> = body.fields && typeof body.fields === "object" ? body.fields : { [body.field]: body.value };
+
+  const update: Record<string, string> = {};
+  for (const [field, value] of Object.entries(fieldsInput)) {
+    if (!EDITABLE_FIELDS.has(field)) {
+      return NextResponse.json({ ok: false, message: "수정할 수 없는 항목입니다" }, { status: 400 });
+    }
+    update[field] = value === "" || value == null ? "" : String(value);
+  }
+  if (!Object.keys(update).length) {
+    return NextResponse.json({ ok: false, message: "수정할 항목이 없습니다" }, { status: 400 });
   }
 
-  const value = body.value === "" || body.value == null ? "" : String(body.value);
-
-  const { error } = await supabase
-    .from("accounts")
-    .update({ [field]: value })
-    .eq("id", id);
+  const { error } = await supabase.from("accounts").update(update).eq("id", id);
 
   if (error) {
     return NextResponse.json({ ok: false, message: error.message }, { status: 500 });

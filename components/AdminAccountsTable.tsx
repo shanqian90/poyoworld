@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, memo, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, memo } from "react";
 import Link from "next/link";
 import { Account } from "@/lib/types";
 
@@ -18,106 +18,36 @@ const COLUMNS: { key: Field; label: string; defaultWidth: number }[] = [
   { key: "account_no", label: "계좌번호", defaultWidth: 140 },
   { key: "holder", label: "계좌주", defaultWidth: 90 },
 ];
-const COL_KEYS = COLUMNS.map((c) => c.key);
-
-function cellKey(id: string, field: Field) {
-  return `${id}:${field}`;
-}
-
-type EditingState = { id: string; field: Field } | null;
 
 const AccountRow = memo(function AccountRow({
   row,
   rowNumber,
-  editing,
-  editValue,
-  selectedCells,
   savingId,
   resettingId,
-  onSelectWholeRow,
-  onStartDrag,
-  onDragOverCell,
-  onSetHoverCell,
-  onClearHoverCell,
-  onStartEdit,
-  onEditValueChange,
-  onCommitEdit,
-  onCancelEdit,
-  onMoveEdit,
   onResetPassword,
+  onEditRow,
   onDeleteRow,
 }: {
   row: Account;
   rowNumber: number;
-  editing: EditingState;
-  editValue: string;
-  selectedCells: Set<string>;
   savingId: string | null;
   resettingId: string | null;
-  onSelectWholeRow: (row: Account, e: ReactMouseEvent) => void;
-  onStartDrag: (row: Account, field: Field) => void;
-  onDragOverCell: (row: Account, field: Field) => void;
-  onSetHoverCell: (row: Account, field: Field) => void;
-  onClearHoverCell: (row: Account, field: Field) => void;
-  onStartEdit: (row: Account, field: Field) => void;
-  onEditValueChange: (value: string) => void;
-  onCommitEdit: () => void;
-  onCancelEdit: () => void;
-  onMoveEdit: (delta: number) => void;
   onResetPassword: (kakaoId: string) => void;
+  onEditRow: (row: Account) => void;
   onDeleteRow: (id: string) => void;
 }) {
   return (
     <tr className="border-b border-neutral-200">
-      <td
-        className="px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 cursor-pointer hover:bg-neutral-200 select-none"
-        onClick={(e) => onSelectWholeRow(row, e)}
-      >
-        {rowNumber}
-      </td>
-      {COLUMNS.map((c) => {
-        const isEditing = editing?.id === row.id && editing.field === c.key;
-        const val = row[c.key];
-        const isSelected = selectedCells.has(cellKey(row.id, c.key));
-        return (
-          <td
-            key={c.key}
-            className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center cursor-text hover:bg-black/5 overflow-hidden text-ellipsis select-none"
-            style={{ boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined }}
-            onDoubleClick={() => !isEditing && onStartEdit(row, c.key)}
-            onMouseDown={() => onStartDrag(row, c.key)}
-            onMouseEnter={() => {
-              onSetHoverCell(row, c.key);
-              onDragOverCell(row, c.key);
-            }}
-            onMouseLeave={() => onClearHoverCell(row, c.key)}
-            title={val || undefined}
-          >
-            {isEditing ? (
-              <input
-                autoFocus
-                className="w-full min-w-[36px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
-                value={editValue}
-                onChange={(e) => onEditValueChange(e.target.value)}
-                onBlur={onCommitEdit}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") onCommitEdit();
-                  else if (e.key === "Escape") onCancelEdit();
-                  else if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    onMoveEdit(1);
-                  } else if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    onMoveEdit(-1);
-                  }
-                }}
-              />
-            ) : (
-              val || ""
-            )}
-          </td>
-        );
-      })}
+      <td className="px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 select-none">{rowNumber}</td>
+      {COLUMNS.map((c) => (
+        <td
+          key={c.key}
+          className="px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center overflow-hidden text-ellipsis"
+          title={row[c.key] || undefined}
+        >
+          {row[c.key] || ""}
+        </td>
+      ))}
       <td className="px-2 py-1.5 border-r border-neutral-200 text-center">
         <button
           className="bg-neutral-700 text-white text-[11px] font-bold rounded-full px-2 py-0.5 disabled:opacity-60"
@@ -125,6 +55,14 @@ const AccountRow = memo(function AccountRow({
           disabled={resettingId === row.kakao_id || savingId === row.id}
         >
           초기화
+        </button>
+      </td>
+      <td className="px-2 py-1.5 border-r border-neutral-200 text-center">
+        <button
+          className="bg-sky-600 text-white text-[11px] font-bold rounded-full px-2.5 py-0.5"
+          onClick={() => onEditRow(row)}
+        >
+          수정
         </button>
       </td>
       <td className="px-2 py-1.5">
@@ -171,21 +109,13 @@ export default function AdminAccountsTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchUrl]);
   const [q, setQ] = useState("");
-  const [editing, setEditing] = useState<EditingState>(null);
-  const [editValue, setEditValue] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const hoverCellRef = useRef<{ id: string; field: Field } | null>(null);
   const [resetMsg, setResetMsg] = useState("");
   const [resettingId, setResettingId] = useState<string | null>(null);
-  const [widths, setWidths] = useState<Record<string, number>>(() =>
-    Object.fromEntries(COLUMNS.map((c) => [c.key, c.defaultWidth]))
-  );
-  const [dragAnchor, setDragAnchor] = useState<{ id: string; field: Field } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
-  type UndoEntry = { id: string; field: Field; prevValue: string };
-  const undoStack = useRef<UndoEntry[][]>([]);
+
+  const [editingRow, setEditingRow] = useState<Account | null>(null);
+  const [editForm, setEditForm] = useState<Record<Field, string>>({} as Record<Field, string>);
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -194,329 +124,6 @@ export default function AdminAccountsTable({
       [r.kakao_id, r.store, r.buyer, r.receiver, r.user_id, r.phone, r.holder].join(" ").toLowerCase().includes(query)
     );
   }, [rows, q]);
-
-  async function saveField(id: string, field: Field, value: string, pushUndo = true) {
-    if (pushUndo) {
-      const current = rows.find((r) => r.id === id);
-      if (current) undoStack.current.push([{ id, field, prevValue: (current[field] as string) ?? "" }]);
-    }
-    setSavingId(id);
-    try {
-      const res = await fetch(`/api/admin/accounts/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ field, value }),
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        alert(data.message || "저장 실패");
-        return;
-      }
-      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
-    } catch {
-      alert("저장 중 오류가 발생했습니다");
-    } finally {
-      setSavingId(null);
-    }
-  }
-
-  function undo() {
-    const batch = undoStack.current.pop();
-    if (!batch) return;
-    batch.forEach((entry) => saveField(entry.id, entry.field, entry.prevValue, false));
-  }
-
-  function fillDown() {
-    const bounds = selectionBounds();
-    if (!bounds) return;
-    const batch: UndoEntry[] = [];
-    for (let ci = bounds.colLo; ci <= bounds.colHi; ci++) {
-      const field = COL_KEYS[ci];
-      const topRow = filtered[bounds.rowLo];
-      if (!topRow) continue;
-      const value = (topRow[field] as string) ?? "";
-      for (let ri = bounds.rowLo + 1; ri <= bounds.rowHi; ri++) {
-        const row = filtered[ri];
-        if (!row) continue;
-        batch.push({ id: row.id, field, prevValue: (row[field] as string) ?? "" });
-        saveField(row.id, field, value, false);
-      }
-    }
-    if (batch.length) undoStack.current.push(batch);
-  }
-
-  const focusRef = useRef<{ id: string; field: Field } | null>(null);
-
-  function moveSelection(dRow: number, dCol: number, extend = false) {
-    const from = focusRef.current || dragAnchor;
-    if (!from) return;
-    const ri = filtered.findIndex((r) => r.id === from.id);
-    const ci = COL_KEYS.indexOf(from.field);
-    if (ri === -1 || ci === -1) return;
-    const nextRi = Math.min(Math.max(ri + dRow, 0), filtered.length - 1);
-    const nextCi = Math.min(Math.max(ci + dCol, 0), COL_KEYS.length - 1);
-    const row = filtered[nextRi];
-    if (!row) return;
-    const field = COL_KEYS[nextCi];
-    focusRef.current = { id: row.id, field };
-    if (extend && dragAnchor) {
-      const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
-      const colA = COL_KEYS.indexOf(dragAnchor.field);
-      const [rowLo, rowHi] = rowA <= nextRi ? [rowA, nextRi] : [nextRi, rowA];
-      const [colLo, colHi] = colA <= nextCi ? [colA, nextCi] : [nextCi, colA];
-      const next = new Set<string>();
-      for (let r2 = rowLo; r2 <= rowHi; r2++) {
-        for (let c2 = colLo; c2 <= colHi; c2++) next.add(cellKey(filtered[r2].id, COL_KEYS[c2]));
-      }
-      setSelectedCells(next);
-    } else {
-      setDragAnchor({ id: row.id, field });
-      setSelectedCells(new Set([cellKey(row.id, field)]));
-    }
-  }
-
-  const startDrag = useCallback((row: Account, field: Field) => {
-    setDragAnchor({ id: row.id, field });
-    focusRef.current = { id: row.id, field };
-    setIsDragging(true);
-    setSelectedCells(new Set([cellKey(row.id, field)]));
-  }, []);
-
-  const dragOver = useCallback(
-    (row: Account, field: Field) => {
-      if (!isDragging || !dragAnchor) return;
-      const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
-      const rowB = filtered.findIndex((r) => r.id === row.id);
-      const colA = COL_KEYS.indexOf(dragAnchor.field);
-      const colB = COL_KEYS.indexOf(field);
-      const [rowLo, rowHi] = rowA <= rowB ? [rowA, rowB] : [rowB, rowA];
-      const [colLo, colHi] = colA <= colB ? [colA, colB] : [colB, colA];
-      const next = new Set<string>();
-      for (let ri = rowLo; ri <= rowHi; ri++) {
-        for (let ci = colLo; ci <= colHi; ci++) next.add(cellKey(filtered[ri].id, COL_KEYS[ci]));
-      }
-      setSelectedCells(next);
-    },
-    [isDragging, dragAnchor, filtered]
-  );
-
-  const setHoverCell = useCallback((row: Account, field: Field) => {
-    hoverCellRef.current = { id: row.id, field };
-  }, []);
-  const clearHoverCell = useCallback((row: Account, field: Field) => {
-    hoverCellRef.current =
-      hoverCellRef.current && hoverCellRef.current.id === row.id && hoverCellRef.current.field === field
-        ? null
-        : hoverCellRef.current;
-  }, []);
-
-  useEffect(() => {
-    function onUp() {
-      setIsDragging(false);
-    }
-    window.addEventListener("mouseup", onUp);
-    return () => window.removeEventListener("mouseup", onUp);
-  }, []);
-
-  function selectionBounds() {
-    if (!selectedCells.size) return null;
-    let rowLo = Infinity, rowHi = -Infinity, colLo = Infinity, colHi = -Infinity;
-    selectedCells.forEach((key) => {
-      const idx = key.lastIndexOf(":");
-      const id = key.slice(0, idx);
-      const field = key.slice(idx + 1) as Field;
-      const ri = filtered.findIndex((r) => r.id === id);
-      const ci = COL_KEYS.indexOf(field);
-      if (ri < rowLo) rowLo = ri;
-      if (ri > rowHi) rowHi = ri;
-      if (ci < colLo) colLo = ci;
-      if (ci > colHi) colHi = ci;
-    });
-    return { rowLo, rowHi, colLo, colHi };
-  }
-
-  async function pasteGrid(text: string) {
-    if (!dragAnchor) return;
-    const lines = text.replace(/\r/g, "").split("\n");
-    while (lines.length && lines[lines.length - 1] === "") lines.pop();
-    const grid = lines.map((line) => line.split("\t"));
-    if (!grid.length) return;
-    const startRow = filtered.findIndex((r) => r.id === dragAnchor.id);
-    const startCol = COL_KEYS.indexOf(dragAnchor.field);
-    if (startRow === -1 || startCol === -1) return;
-    const localRows = filtered.slice();
-    const batch: UndoEntry[] = [];
-    for (let ri = 0; ri < grid.length; ri++) {
-      let targetRow = localRows[startRow + ri];
-      if (!targetRow) {
-        const row = await createRow();
-        if (!row) break;
-        targetRow = row;
-        localRows.push(row);
-        setRows((prev) => [...prev, row]);
-      }
-      for (let ci = 0; ci < grid[ri].length; ci++) {
-        const field = COL_KEYS[startCol + ci];
-        if (!field) continue;
-        const value = grid[ri][ci].trim();
-        batch.push({ id: targetRow.id, field, prevValue: (targetRow[field] as string) ?? "" });
-        saveField(targetRow.id, field, value, false);
-      }
-    }
-    if (batch.length) undoStack.current.push(batch);
-  }
-
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement;
-      const inInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-
-      if ((e.key === "c" || e.key === "C") && (e.ctrlKey || e.metaKey) && !inInput && selectedCells.size > 0) {
-        const bounds = selectionBounds();
-        if (!bounds) return;
-        const lines: string[] = [];
-        for (let ri = bounds.rowLo; ri <= bounds.rowHi; ri++) {
-          const cells: string[] = [];
-          for (let ci = bounds.colLo; ci <= bounds.colHi; ci++) {
-            const v = filtered[ri][COL_KEYS[ci]];
-            cells.push(v == null ? "" : String(v));
-          }
-          lines.push(cells.join("\t"));
-        }
-        navigator.clipboard.writeText(lines.join("\n"));
-        return;
-      }
-
-      if ((e.key === "v" || e.key === "V") && (e.ctrlKey || e.metaKey) && !inInput && dragAnchor) {
-        e.preventDefault();
-        navigator.clipboard.readText().then((text) => pasteGrid(text));
-        return;
-      }
-
-      if ((e.key === "z" || e.key === "Z") && (e.ctrlKey || e.metaKey) && !inInput) {
-        e.preventDefault();
-        undo();
-        return;
-      }
-
-      if ((e.key === "d" || e.key === "D") && (e.ctrlKey || e.metaKey) && !inInput && selectedCells.size > 1) {
-        e.preventDefault();
-        fillDown();
-        return;
-      }
-
-      if (!editing && !inInput && dragAnchor && !e.ctrlKey && !e.metaKey) {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          const row = filtered.find((r) => r.id === dragAnchor.id);
-          if (row) startEdit(row, dragAnchor.field);
-          return;
-        }
-        if (e.key === "Escape") {
-          setSelectedCells(new Set());
-          return;
-        }
-        if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
-          e.preventDefault();
-          const dRow = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
-          const dCol = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-          moveSelection(dRow, dCol, e.shiftKey);
-          return;
-        }
-        if (e.key === "Tab") {
-          e.preventDefault();
-          moveSelection(0, e.shiftKey ? -1 : 1);
-          return;
-        }
-      }
-
-      if (editing) return;
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
-      if (inInput) return;
-      if (selectedCells.size > 1) {
-        const batch: UndoEntry[] = [];
-        selectedCells.forEach((key) => {
-          const idx = key.lastIndexOf(":");
-          const id = key.slice(0, idx);
-          const field = key.slice(idx + 1) as Field;
-          const current = rows.find((r) => r.id === id);
-          if (!current) return;
-          batch.push({ id, field, prevValue: (current[field] as string) ?? "" });
-          saveField(id, field, "", false);
-        });
-        if (batch.length) undoStack.current.push(batch);
-        return;
-      }
-      if (!hoverCellRef.current) return;
-      saveField(hoverCellRef.current.id, hoverCellRef.current.field, "");
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing, selectedCells, dragAnchor, filtered]);
-
-  const selectWholeRow = useCallback(
-    (row: Account, e?: ReactMouseEvent) => {
-      if (e?.shiftKey && dragAnchor) {
-        const rowA = filtered.findIndex((r) => r.id === dragAnchor.id);
-        const rowB = filtered.findIndex((r) => r.id === row.id);
-        if (rowA !== -1 && rowB !== -1) {
-          const [lo, hi] = rowA <= rowB ? [rowA, rowB] : [rowB, rowA];
-          const next = new Set<string>();
-          for (let ri = lo; ri <= hi; ri++) {
-            for (const k of COL_KEYS) next.add(cellKey(filtered[ri].id, k));
-          }
-          setSelectedCells(next);
-          return;
-        }
-      }
-      setDragAnchor({ id: row.id, field: COL_KEYS[0] });
-      setSelectedCells(new Set(COL_KEYS.map((k) => cellKey(row.id, k))));
-    },
-    [dragAnchor, filtered]
-  );
-
-  function startResize(e: ReactMouseEvent, key: Field) {
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startWidth = widths[key] ?? 100;
-    function onMove(ev: MouseEvent) {
-      const next = Math.max(36, startWidth + (ev.clientX - startX));
-      setWidths((prev) => ({ ...prev, [key]: next }));
-    }
-    function onUp() {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    }
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }
-
-  const startEdit = useCallback((row: Account, field: Field) => {
-    setEditing({ id: row.id, field });
-    setEditValue(row[field] || "");
-  }, []);
-
-  function commitEdit() {
-    if (!editing) return;
-    saveField(editing.id, editing.field, editValue.trim());
-    setEditing(null);
-  }
-
-  function cancelEdit() {
-    setEditing(null);
-  }
-
-  function moveEdit(delta: number) {
-    if (!editing) return;
-    const field = editing.field;
-    const id = editing.id;
-    commitEdit();
-    const idx = filtered.findIndex((r) => r.id === id);
-    const next = filtered[idx + delta];
-    if (next) startEdit(next, field);
-  }
 
   async function addRow() {
     setAdding(true);
@@ -581,6 +188,38 @@ export default function AdminAccountsTable({
     }
   }, []);
 
+  const openEdit = useCallback((row: Account) => {
+    setEditingRow(row);
+    setEditForm(Object.fromEntries(COLUMNS.map((c) => [c.key, row[c.key] || ""])) as Record<Field, string>);
+  }, []);
+
+  function closeEdit() {
+    setEditingRow(null);
+  }
+
+  async function saveEdit() {
+    if (!editingRow) return;
+    setSavingId(editingRow.id);
+    try {
+      const res = await fetch(`/api/admin/accounts/${editingRow.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fields: editForm }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.message || "저장 실패");
+        return;
+      }
+      setRows((prev) => prev.map((r) => (r.id === editingRow.id ? { ...r, ...editForm } : r)));
+      setEditingRow(null);
+    } catch {
+      alert("저장 중 오류가 발생했습니다");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3 h-full">
       <div className="flex items-center gap-2">
@@ -589,7 +228,7 @@ export default function AdminAccountsTable({
         </Link>
         <div className="text-lg font-extrabold text-neutral-700 ml-2">👤 계정관리</div>
         <span className="text-xs text-neutral-500">{filtered.length.toLocaleString("ko-KR")}건</span>
-        <span className="text-xs text-neutral-400">칸에 마우스 올리고 Delete로 지우기</span>
+        <span className="text-xs text-neutral-400">보기 전용입니다 · 수정 버튼으로 편집하세요</span>
         <div className="flex-1" />
         <input
           className="border border-neutral-300 rounded-lg px-3 py-1.5 text-sm w-64"
@@ -606,9 +245,7 @@ export default function AdminAccountsTable({
         </button>
       </div>
 
-      {resetMsg && (
-        <div className="bg-neutral-800 text-white text-sm rounded-xl px-3 py-2">{resetMsg}</div>
-      )}
+      {resetMsg && <div className="bg-neutral-800 text-white text-sm rounded-xl px-3 py-2">{resetMsg}</div>}
       {(loadError || fetchError) && (
         <div className="bg-rose-100 border border-rose-300 text-rose-700 text-sm rounded-xl px-3 py-2">
           {loadError || fetchError}
@@ -617,34 +254,26 @@ export default function AdminAccountsTable({
       {fetching && <div className="text-center text-sm text-neutral-500 font-bold py-2">🌸 불러오는 중...</div>}
 
       <div className="border border-neutral-300 rounded-xl overflow-auto flex-1">
-        <table
-          className="text-xs border-collapse"
-          style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 70 + 36 + 36) }}
-        >
+        <table className="text-xs border-collapse" style={{ tableLayout: "fixed" }}>
           <colgroup>
             <col style={{ width: 36 }} />
             {COLUMNS.map((c) => (
-              <col key={c.key} style={{ width: widths[c.key] }} />
+              <col key={c.key} style={{ width: c.defaultWidth }} />
             ))}
             <col style={{ width: 70 }} />
+            <col style={{ width: 60 }} />
             <col style={{ width: 36 }} />
           </colgroup>
           <thead className="sticky top-0 bg-neutral-800 text-white z-10">
             <tr>
               <th className="px-1 py-2 text-center border-r border-neutral-700"></th>
               {COLUMNS.map((c) => (
-                <th
-                  key={c.key}
-                  className="relative px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700 overflow-hidden"
-                >
+                <th key={c.key} className="px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700 overflow-hidden">
                   {c.label}
-                  <div
-                    className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-rose-400/70"
-                    onMouseDown={(e) => startResize(e, c.key)}
-                  />
                 </th>
               ))}
               <th className="px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700">비번초기화</th>
+              <th className="px-2 py-2 text-center whitespace-nowrap border-r border-neutral-700"></th>
               <th className="px-2 py-2 text-center whitespace-nowrap"></th>
             </tr>
           </thead>
@@ -654,28 +283,16 @@ export default function AdminAccountsTable({
                 key={r.id}
                 row={r}
                 rowNumber={ri + 1}
-                editing={editing}
-                editValue={editing?.id === r.id ? editValue : ""}
-                selectedCells={selectedCells}
                 savingId={savingId}
                 resettingId={resettingId}
-                onSelectWholeRow={selectWholeRow}
-                onStartDrag={startDrag}
-                onDragOverCell={dragOver}
-                onSetHoverCell={setHoverCell}
-                onClearHoverCell={clearHoverCell}
-                onStartEdit={startEdit}
-                onEditValueChange={setEditValue}
-                onCommitEdit={commitEdit}
-                onCancelEdit={cancelEdit}
-                onMoveEdit={moveEdit}
                 onResetPassword={resetPassword}
+                onEditRow={openEdit}
                 onDeleteRow={deleteRow}
               />
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length + 3} className="text-center text-neutral-400 py-8">
+                <td colSpan={COLUMNS.length + 4} className="text-center text-neutral-400 py-8">
                   등록된 계정이 없습니다
                 </td>
               </tr>
@@ -683,6 +300,41 @@ export default function AdminAccountsTable({
           </tbody>
         </table>
       </div>
+
+      {editingRow && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={closeEdit}>
+          <div className="bg-white rounded-2xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="text-sm font-extrabold text-neutral-700 mb-3">✏️ 계정 수정</div>
+            <div className="flex flex-col gap-2">
+              {COLUMNS.map((c) => (
+                <label key={c.key} className="flex flex-col gap-1 text-xs">
+                  <span className="font-bold text-neutral-500">{c.label}</span>
+                  <input
+                    className="border border-neutral-300 rounded-lg px-2 py-1.5 text-sm"
+                    value={editForm[c.key] ?? ""}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, [c.key]: e.target.value }))}
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                className="flex-1 text-xs font-bold text-neutral-500 border border-neutral-300 rounded-lg py-2"
+                onClick={closeEdit}
+              >
+                취소
+              </button>
+              <button
+                className="flex-1 text-xs font-bold text-white bg-sky-600 rounded-lg py-2 disabled:opacity-60"
+                onClick={saveEdit}
+                disabled={savingId === editingRow.id}
+              >
+                {savingId === editingRow.id ? "저장 중..." : "저장"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
