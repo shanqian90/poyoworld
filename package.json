@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",
+    "@tanstack/react-virtual": "^3.14.8",
     "csv-parse": "^7.0.1",
     "html2canvas": "^1.4.1",
     "jszip": "^3.10.1",

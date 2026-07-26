@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { computeKFlags, computeAddressDupFlags, computeBatchCompleteFlags, K_FLAG_INFO, ADDRESS_DUP_COLOR, BATCH_COMPLETE_COLOR } from "@/lib/mainFlags";
@@ -432,6 +433,15 @@ export default function AdminOrdersTable({
     });
   }, [rows, q, dateFilter]);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 29,
+    overscan: 12,
+    enabled: mode === "full",
+  });
+
   async function saveField(id: number, field: Field, value: string | number | boolean | null, pushUndo = true) {
     if (pushUndo) {
       const current = rows.find((r) => r.id === id);
@@ -831,6 +841,178 @@ export default function AdminOrdersTable({
     { label: "📁 리뷰이미지", bucket: "review-images" },
   ];
 
+  function renderRow(r: AdminOrderRow, ri: number) {
+    return (
+      <tr key={r.id} className="border-b border-neutral-200">
+        <td
+          className={`px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 select-none ${
+            mode === "active" ? "cursor-pointer hover:bg-neutral-200" : ""
+          }`}
+          onClick={mode === "active" ? (e) => selectWholeRow(r, e) : undefined}
+        >
+          {ri + 1}
+        </td>
+        {COLUMNS.map((c) => {
+          if (c.kind === "toggle") {
+            const on = !!r[c.key];
+            const [onLabel, offLabel] = TOGGLE_LABELS[c.key] || ["완료", "대기"];
+            const badge = (
+              <span
+                className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                  on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
+                }`}
+              >
+                {on ? onLabel : offLabel}
+              </span>
+            );
+            return (
+              <td key={c.key} className="px-2 py-1.5 border-r border-neutral-200 text-center overflow-hidden">
+                {mode === "active" ? (
+                  <button
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                      on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
+                    }`}
+                    onClick={() => toggleBool(r, c.key as "review_done" | "paid")}
+                    disabled={savingId === r.id}
+                  >
+                    {on ? onLabel : offLabel}
+                  </button>
+                ) : (
+                  badge
+                )}
+              </td>
+            );
+          }
+          const isEditing = editing?.id === r.id && editing.field === c.key;
+          const val = r[c.key];
+          let flagBg: string | undefined;
+          let flagTitle: string | undefined;
+          if (c.key === "seq") {
+            flagBg = r._group === "a" ? "#FFF1A6" : r._group === "b" ? "#FAD2E1" : undefined;
+          } else if (c.key === "manager") {
+            const flag = kFlags.get(r.id);
+            if (flag) {
+              flagBg = K_FLAG_INFO[flag].color;
+              flagTitle = K_FLAG_INFO[flag].label;
+            }
+          } else if (c.key === "address" && addressDupFlags.has(r.id)) {
+            flagBg = ADDRESS_DUP_COLOR;
+            flagTitle = "주소 중복(21일내)";
+          } else if (c.key === "real_manager" && batchCompleteFlags.has(r.id)) {
+            flagBg = BATCH_COMPLETE_COLOR;
+            flagTitle = "해당건 완료";
+          }
+          const isLink = LINK_FIELDS.has(c.key);
+          const urls = isLink
+            ? String(val || "")
+                .split("\n")
+                .map((s) => s.trim())
+                .filter(Boolean)
+            : [];
+          const isSelected = mode === "active" && selectedCells.has(cellKey(r.id, c.key));
+          return (
+            <td
+              key={c.key}
+              className={`px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center overflow-hidden text-ellipsis select-none ${
+                mode === "active" ? "cursor-text hover:bg-black/5" : ""
+              }`}
+              style={{ backgroundColor: flagBg, boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined }}
+              onDoubleClick={mode === "active" ? () => !isEditing && startEdit(r, c.key) : undefined}
+              onMouseDown={mode === "active" ? () => startDrag(r, c.key) : undefined}
+              onMouseEnter={
+                mode === "active"
+                  ? () => {
+                      setHoverCell({ id: r.id, field: c.key });
+                      dragOver(r, c.key);
+                    }
+                  : undefined
+              }
+              onMouseLeave={
+                mode === "active"
+                  ? () => setHoverCell((h) => (h && h.id === r.id && h.field === c.key ? null : h))
+                  : undefined
+              }
+              title={flagTitle || (c.key === "date_mmdd" ? guessFullDate(r) : typeof val === "string" ? val : undefined)}
+            >
+              {isEditing && c.key === "date_mmdd" ? (
+                <div className="flex items-center gap-0.5 min-w-[120px] border border-rose-400 rounded px-1 py-0.5 bg-white">
+                  <span className="text-xs shrink-0">📅</span>
+                  <input
+                    autoFocus
+                    type="date"
+                    className="w-full text-xs outline-none text-center"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitEdit();
+                      else if (e.key === "Escape") cancelEdit();
+                    }}
+                  />
+                </div>
+              ) : isEditing ? (
+                <input
+                  autoFocus
+                  className="w-full min-w-[36px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={commitEdit}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitEdit();
+                    else if (e.key === "Escape") cancelEdit();
+                    else if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      moveEdit(1);
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      moveEdit(-1);
+                    }
+                  }}
+                />
+              ) : isLink ? (
+                urls.length ? (
+                  <span className="inline-flex gap-1">
+                    {urls.map((u, i) => (
+                      <a
+                        key={i}
+                        href={u}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        보기{urls.length > 1 ? i + 1 : ""}
+                      </a>
+                    ))}
+                  </span>
+                ) : (
+                  ""
+                )
+              ) : c.align === "right" ? (
+                fmt(val as number)
+              ) : c.key === "paid_date" && val ? (
+                formatPaidDate(val as string)
+              ) : (
+                (val as string) ?? ""
+              )}
+            </td>
+          );
+        })}
+        <td className="px-2 py-1.5">
+          {mode === "active" && (
+            <button
+              className="text-neutral-400 hover:text-rose-600 font-bold px-1"
+              onClick={() => deleteRow(r.id)}
+              title="체험단진행에서 숨기기 (전체보기에는 남아있음)"
+            >
+              ✕
+            </button>
+          )}
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3 h-full">
       <div className="flex items-center gap-2 flex-wrap">
@@ -984,7 +1166,7 @@ export default function AdminOrdersTable({
         <div className="text-center text-sm text-neutral-500 font-bold py-2">🌸 불러오는 중...</div>
       )}
 
-      <div className="border border-neutral-300 rounded-xl overflow-auto flex-1">
+      <div ref={scrollRef} className="border border-neutral-300 rounded-xl overflow-auto flex-1">
         <table
           className="text-xs border-collapse"
           style={{ tableLayout: "fixed", width: COLUMNS.reduce((sum, c) => sum + (widths[c.key] ?? c.defaultWidth), 36 + 36) }}
@@ -1015,175 +1197,27 @@ export default function AdminOrdersTable({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r, ri) => (
-              <tr key={r.id} className="border-b border-neutral-200">
-                <td
-                  className={`px-1 py-1.5 border-r border-neutral-200 text-center text-neutral-400 select-none ${
-                    mode === "active" ? "cursor-pointer hover:bg-neutral-200" : ""
-                  }`}
-                  onClick={mode === "active" ? (e) => selectWholeRow(r, e) : undefined}
-                >
-                  {ri + 1}
-                </td>
-                {COLUMNS.map((c) => {
-                  if (c.kind === "toggle") {
-                    const on = !!r[c.key];
-                    const [onLabel, offLabel] = TOGGLE_LABELS[c.key] || ["완료", "대기"];
-                    const badge = (
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                          on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
-                        }`}
-                      >
-                        {on ? onLabel : offLabel}
-                      </span>
-                    );
-                    return (
-                      <td key={c.key} className="px-2 py-1.5 border-r border-neutral-200 text-center overflow-hidden">
-                        {mode === "active" ? (
-                          <button
-                            className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                              on ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"
-                            }`}
-                            onClick={() => toggleBool(r, c.key as "review_done" | "paid")}
-                            disabled={savingId === r.id}
-                          >
-                            {on ? onLabel : offLabel}
-                          </button>
-                        ) : (
-                          badge
-                        )}
-                      </td>
-                    );
-                  }
-                  const isEditing = editing?.id === r.id && editing.field === c.key;
-                  const val = r[c.key];
-                  let flagBg: string | undefined;
-                  let flagTitle: string | undefined;
-                  if (c.key === "seq") {
-                    flagBg = r._group === "a" ? "#FFF1A6" : r._group === "b" ? "#FAD2E1" : undefined;
-                  } else if (c.key === "manager") {
-                    const flag = kFlags.get(r.id);
-                    if (flag) {
-                      flagBg = K_FLAG_INFO[flag].color;
-                      flagTitle = K_FLAG_INFO[flag].label;
-                    }
-                  } else if (c.key === "address" && addressDupFlags.has(r.id)) {
-                    flagBg = ADDRESS_DUP_COLOR;
-                    flagTitle = "주소 중복(21일내)";
-                  } else if (c.key === "real_manager" && batchCompleteFlags.has(r.id)) {
-                    flagBg = BATCH_COMPLETE_COLOR;
-                    flagTitle = "해당건 완료";
-                  }
-                  const isLink = LINK_FIELDS.has(c.key);
-                  const urls = isLink
-                    ? String(val || "")
-                        .split("\n")
-                        .map((s) => s.trim())
-                        .filter(Boolean)
-                    : [];
-                  const isSelected = mode === "active" && selectedCells.has(cellKey(r.id, c.key));
-                  return (
-                    <td
-                      key={c.key}
-                      className={`px-2 py-1.5 border-r border-neutral-200 whitespace-nowrap text-center overflow-hidden text-ellipsis select-none ${
-                        mode === "active" ? "cursor-text hover:bg-black/5" : ""
-                      }`}
-                      style={{ backgroundColor: flagBg, boxShadow: isSelected ? "inset 0 0 0 2px #2563eb" : undefined }}
-                      onDoubleClick={mode === "active" ? () => !isEditing && startEdit(r, c.key) : undefined}
-                      onMouseDown={mode === "active" ? () => startDrag(r, c.key) : undefined}
-                      onMouseEnter={
-                        mode === "active"
-                          ? () => {
-                              setHoverCell({ id: r.id, field: c.key });
-                              dragOver(r, c.key);
-                            }
-                          : undefined
-                      }
-                      onMouseLeave={
-                        mode === "active"
-                          ? () => setHoverCell((h) => (h && h.id === r.id && h.field === c.key ? null : h))
-                          : undefined
-                      }
-                      title={flagTitle || (c.key === "date_mmdd" ? guessFullDate(r) : typeof val === "string" ? val : undefined)}
-                    >
-                      {isEditing && c.key === "date_mmdd" ? (
-                        <div className="flex items-center gap-0.5 min-w-[120px] border border-rose-400 rounded px-1 py-0.5 bg-white">
-                          <span className="text-xs shrink-0">📅</span>
-                          <input
-                            autoFocus
-                            type="date"
-                            className="w-full text-xs outline-none text-center"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onBlur={commitEdit}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") commitEdit();
-                              else if (e.key === "Escape") cancelEdit();
-                            }}
-                          />
-                        </div>
-                      ) : isEditing ? (
-                        <input
-                          autoFocus
-                          className="w-full min-w-[36px] border border-rose-400 rounded px-1 py-0.5 text-xs outline-none text-center"
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onBlur={commitEdit}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") commitEdit();
-                            else if (e.key === "Escape") cancelEdit();
-                            else if (e.key === "ArrowDown") {
-                              e.preventDefault();
-                              moveEdit(1);
-                            } else if (e.key === "ArrowUp") {
-                              e.preventDefault();
-                              moveEdit(-1);
-                            }
-                          }}
-                        />
-                      ) : isLink ? (
-                        urls.length ? (
-                          <span className="inline-flex gap-1">
-                            {urls.map((u, i) => (
-                              <a
-                                key={i}
-                                href={u}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-600 underline"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                보기{urls.length > 1 ? i + 1 : ""}
-                              </a>
-                            ))}
-                          </span>
-                        ) : (
-                          ""
-                        )
-                      ) : c.align === "right" ? (
-                        fmt(val as number)
-                      ) : c.key === "paid_date" && val ? (
-                        formatPaidDate(val as string)
-                      ) : (
-                        (val as string) ?? ""
-                      )}
-                    </td>
-                  );
-                })}
-                <td className="px-2 py-1.5">
-                  {mode === "active" && (
-                    <button
-                      className="text-neutral-400 hover:text-rose-600 font-bold px-1"
-                      onClick={() => deleteRow(r.id)}
-                      title="체험단진행에서 숨기기 (전체보기에는 남아있음)"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {mode === "full" ? (
+              <>
+                {rowVirtualizer.getVirtualItems().length > 0 && (
+                  <tr aria-hidden style={{ height: rowVirtualizer.getVirtualItems()[0].start }}>
+                    <td colSpan={COLUMNS.length + 2} style={{ padding: 0, border: "none" }} />
+                  </tr>
+                )}
+                {rowVirtualizer.getVirtualItems().map((vi) => renderRow(filtered[vi.index], vi.index))}
+                {rowVirtualizer.getVirtualItems().length > 0 && (
+                  <tr aria-hidden style={{
+                    height:
+                      rowVirtualizer.getTotalSize() -
+                      rowVirtualizer.getVirtualItems()[rowVirtualizer.getVirtualItems().length - 1].end,
+                  }}>
+                    <td colSpan={COLUMNS.length + 2} style={{ padding: 0, border: "none" }} />
+                  </tr>
+                )}
+              </>
+            ) : (
+              filtered.map((r, ri) => renderRow(r, ri))
+            )}
           </tbody>
         </table>
       </div>
